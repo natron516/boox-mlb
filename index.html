@@ -367,14 +367,17 @@ function render(){
   // ---- inning box score grid ----
   drawLinescoreGrid(st, 250);
 
-  // ---- left panel: away lineup + pitcher ----
-  var lineupH = 56 + 40 + 9*80 + 14;
+  // ---- left panel: away lineup + pitcher + pitch panel ----
+  var lineupH = 56 + 40 + 9*80 + 14; // ~834
+  var pitcherH = 170;
   drawLineupPanel(PANEL_X_L, PANEL_Y, st.away, st.awayLineup, st.isTop ? st.batterId : null);
-  drawPitcherBox(PANEL_X_L, PANEL_Y + lineupH + 16, st.away + " PITCHER", st.awayPitcher);
+  drawPitcherBox(PANEL_X_L, PANEL_Y + lineupH + 10, st.away + " PITCHER", st.awayPitcher, pitcherH);
+  drawPitchPanel(st, PANEL_X_L, PANEL_Y + lineupH + 10 + pitcherH + 10);
 
-  // ---- right panel: home lineup + pitcher ----
+  // ---- right panel: home lineup + pitcher + pitch panel ----
   drawLineupPanel(PANEL_X_R, PANEL_Y, st.home, st.homeLineup, !st.isTop ? st.batterId : null);
-  drawPitcherBox(PANEL_X_R, PANEL_Y + lineupH + 16, st.home + " PITCHER", st.homePitcher);
+  drawPitcherBox(PANEL_X_R, PANEL_Y + lineupH + 10, st.home + " PITCHER", st.homePitcher, pitcherH);
+  drawPitchPanel(st, PANEL_X_R, PANEL_Y + lineupH + 10 + pitcherH + 10);
 
   // ---- center: diamond ----
   drawDiamond(st);
@@ -851,53 +854,45 @@ function drawDiamond(st){
   }
 }
 
-// ---- strike zone + pitch log (batting side) ----
-function drawPitchPanel(st){
-  var side = st.isTop ? "L" : "R";
-  var lineupH = 56 + 40 + 9*80 + 14;  // 884
-  var pitcherBoxH = 200;
-  var panelX = side==="L" ? PANEL_X_L : PANEL_X_R;
-  // Position: right below pitcher box, inside the side panel x-range
-  var py = PANEL_Y + lineupH + 16 + pitcherBoxH + 24;
-  var px = panelX;
-
-  // strike zone: 3x4 grid
-  var zw = 180, zh = 240;
-  text("ZONE", px+zw/2, py-10, 26, true, "center");
-  rect(px, py, zw, zh, 4);
-  for(var i=1;i<3;i++) line(px+i*zw/3, py, px+i*zw/3, py+zh, 2);
-  for(var j=1;j<4;j++) line(px, py+j*zh/4, px+zw, py+j*zh/4, 2);
+// ---- strike zone + pitch log ----
+// panelX = left edge of the side panel; py = top y for this block
+function drawPitchPanel(st, panelX, py){
+  var pw = PANEL_W; // full panel width
+  // Zone: left half of panel
+  var zw = 160, zh = 200;
+  var zx = panelX + 10;
+  // Zone label + grid
+  invBand(zx, py, zw, 32, "ZONE", 22);
+  rect(zx, py+32, zw, zh, 3);
+  for(var i=1;i<3;i++) line(zx+i*zw/3, py+32, zx+i*zw/3, py+32+zh, 2);
+  for(var j=1;j<4;j++) line(zx, py+32+j*zh/4, zx+zw, py+32+j*zh/4, 2);
   // pitch dot
   if(st.lastPitch){
     var p = st.lastPitch;
-    // pX in feet, zone half-width ~0.83ft; pZ maps szBot..szTop into zone
-    var nx = (p.px/0.83+1)/2;              // 0..1 left-right (catcher view)
+    var nx = (-p.px/0.83+1)/2; // catcher's view: flip x
     var nz = (p.pz - p.szBot)/((p.szTop-p.szBot)||1);
-    nx = Math.max(-0.2, Math.min(1.2, nx));
-    nz = Math.max(-0.2, Math.min(1.2, nz));
-    var dx = px + nx*zw;
-    var dy = py + (1-nz)*zh;
+    nx = Math.max(0, Math.min(1, nx));
+    nz = Math.max(0, Math.min(1, nz));
+    var dx = zx + nx*zw;
+    var dy = py+32 + (1-nz)*zh;
     ctx.fillStyle="#000";
-    ctx.beginPath(); ctx.arc(dx,dy,12,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(dx,dy,10,0,Math.PI*2); ctx.fill();
   }
-
-  // pitch-by-pitch log next to zone
-  var lx = side==="L" ? px + zw + 30 : px - 30;
-  var align = side==="L" ? "left" : "right";
-  // log box border
-  var logW = 260, logH = zh + 30;
-  var logX = side==="L" ? px + zw + 10 : px - 10 - logW;
-  rect(logX, py - 30, logW, logH, 2);
-  invBand(logX, py - 30, logW, 36, "PITCHES", 24);
+  // Pitch log: right half of panel
+  var lx = zx + zw + 10;
+  var lw = pw - zw - 30;
+  var lh = zh + 32;
+  invBand(lx, py, lw, 32, "PITCHES", 22);
+  rect(lx, py+32, lw, lh-32, 2);
   var n = st.pitches.length;
-  var show = st.pitches.slice(-6);
+  var show = st.pitches.slice(-5);
   if(!show.length){
-    text("--", logX + logW/2, py + 30, 26, false, "center");
+    text("--", lx+lw/2, py+32+36, 26, false, "center");
   } else {
     for(var k=0;k<show.length;k++){
       var num = n - show.length + k + 1;
-      var s = num+". "+show[k].call.substring(0,14);
-      text(s, logX + 10, py + 10 + k*36, 24, false, "left");
+      var s = num+". "+show[k].call.substring(0,18);
+      text(s, lx+10, py+32+10+k*34, 22, false, "left");
     }
   }
 }

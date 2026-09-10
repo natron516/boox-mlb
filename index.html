@@ -620,6 +620,31 @@ function animateBall(pitchType){
 
 // Batted ball arc: flies from home plate toward Statcast hit coordinates
 var hitAnim=null, hitAnimTarget={x:0,y:0};
+function animateHitTo(tx, ty){
+  hitAnimTarget = {x:tx, y:ty};
+  var frames=14, f=0;
+  function step(){
+    f++; hitAnim={t:f/frames}; render();
+    if(f<frames){ setTimeout(step,50); }
+    else{ hitAnim=null; render(); }
+  }
+  setTimeout(step,50);
+}
+// Fallback hit target by result event type when Statcast coords are missing
+function fallbackHitTarget(eventType){
+  var e = (eventType||"").toLowerCase();
+  var r = Math.random();
+  var side = (Math.random()<0.5?-1:1);
+  var dx, dy; // offsets from home plate: dx=right(+)/left(-), dy=into field (canvas up)
+  if(e==="single"){ dx = side*(40+r*120); dy = 420+r*80; }               // shallow center
+  else if(e==="double"){ dx = side*(220+r*120); dy = 620+r*100; }        // deep gap
+  else if(e==="triple"){ dx = side*(420+r*80); dy = 560+r*120; }         // deep corner/line
+  else if(e==="home run"){ dx = side*r*180; dy = 820+r*120; }            // over the fence
+  else if(e==="groundout"||e==="forceout"||e==="fielders choice"){ dx = side*(60+r*200); dy = 180+r*120; } // infield
+  else if(e==="flyout"||e==="lineout"||e==="pop out"){ dx = side*(80+r*280); dy = 380+r*180; }            // shallow-med OF
+  else { dx = side*r*100; dy = 500+r*80; }                               // medium center
+  return { x: D_HOME.x + dx, y: D_HOME.y - dy };
+}
 function animateHit(coordX, coordY){
   // Statcast field coords: home plate ~(125, 200), x=right, y=up-field
   // Map to canvas: canvas home=D_HOME, field goes up (decreasing canvas y)
@@ -628,17 +653,7 @@ function animateHit(coordX, coordY){
   var fieldOriginX = 125.42, fieldOriginY = 198.27; // Statcast home plate
   var dx = (coordX - fieldOriginX) * scale;
   var dy = (coordY - fieldOriginY) * scale; // positive = into field = canvas up
-  hitAnimTarget = {
-    x: D_HOME.x + dx,
-    y: D_HOME.y - dy
-  };
-  var frames=14, f=0;
-  function step(){
-    f++; hitAnim={t:f/frames}; render();
-    if(f<frames){ setTimeout(step,50); }
-    else{ hitAnim=null; render(); }
-  }
-  setTimeout(step,50);
+  animateHitTo(D_HOME.x + dx, D_HOME.y - dy);
 }
 
 // ---- replay auto-advance ----
@@ -677,10 +692,15 @@ function startReplayTimer(){
           for(var pi2=pevts2.length-1;pi2>=0;pi2--){
             if(pevts2[pi2].isPitch){
               var callCode = (pevts2[pi2].details&&pevts2[pi2].details.call&&pevts2[pi2].details.call.code)||"";
-              if(callCode==="X" && pevts2[pi2].hitData){
+              if(callCode==="X"){
                 var hd = pevts2[pi2].hitData;
-                if(hd.coordinates&&hd.coordinates.coordX!=null)
+                if(hd && hd.coordinates && hd.coordinates.coordX!=null){
                   animateHit(hd.coordinates.coordX, hd.coordinates.coordY);
+                } else {
+                  var evName = (lastPlay.result && lastPlay.result.event) || "";
+                  var tgt = fallbackHitTarget(evName);
+                  animateHitTo(tgt.x, tgt.y);
+                }
               }
               break;
             }

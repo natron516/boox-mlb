@@ -515,45 +515,42 @@ function renderPicker(){
   grid(xA, pickA, function(id){ pickA=id; });
   grid(xB, pickB, function(id){ pickB=id; });
 
-  // season selector in the center: decade picker (left) + year-within-decade (right)
-  var cy = topY + 300;
-  text("SEASON", CENTER_X, cy-90, 40, true, "center");
+  // season selector: DECADE stacked above YEAR, both centered
+  var cy = topY + 260;
+  var aw = 80;
+  // --- Decade row ---
   var decade = Math.floor(pickYear/10)*10;
   var yearOff = pickYear - decade;
-  var aw = 70;
-  var selGap = 60; // gap between the two selectors
-  // Decade selector (left of center)
-  var decCX = CENTER_X - 230;
-  text(decade+"s", decCX, cy+16, 64, true, "center");
-  rect(decCX-200, cy-40, aw, 80, 4);
-  text("<", decCX-200+aw/2, cy+16, 48, true, "center");
-  addHit(decCX-200-15, cy-60, aw+30, 120, function(){
+  text("DECADE", CENTER_X, cy-10, 30, true, "center");
+  text(decade+"s", CENTER_X, cy+74, 72, true, "center");
+  rect(CENTER_X-260, cy+20, aw, 90, 4);
+  text("<", CENTER_X-260+aw/2, cy+74, 54, true, "center");
+  addHit(CENTER_X-280, cy, aw+40, 130, function(){
     var d = Math.floor(pickYear/10)*10 - 10;
     if(d + 9 >= YEAR_MIN){ setPickYear(Math.max(YEAR_MIN, d + (pickYear%10))); render(); }
   });
-  rect(decCX+130, cy-40, aw, 80, 4);
-  text(">", decCX+130+aw/2, cy+16, 48, true, "center");
-  addHit(decCX+130-15, cy-60, aw+30, 120, function(){
+  rect(CENTER_X+180, cy+20, aw, 90, 4);
+  text(">", CENTER_X+180+aw/2, cy+74, 54, true, "center");
+  addHit(CENTER_X+180-20, cy, aw+40, 130, function(){
     var d = Math.floor(pickYear/10)*10 + 10;
     if(d <= YEAR_MAX){ setPickYear(Math.min(YEAR_MAX, d + (pickYear%10))); render(); }
   });
-  text("DECADE", decCX, cy+72, 26, true, "center");
-  // Year-within-decade selector (right of center)
-  var yrCX = CENTER_X + 230;
-  text(String(pickYear), yrCX, cy+16, 64, true, "center");
-  rect(yrCX-200, cy-40, aw, 80, 4);
-  text("<", yrCX-200+aw/2, cy+16, 48, true, "center");
-  addHit(yrCX-200-15, cy-60, aw+30, 120, function(){
+  // --- Year row (below decade) ---
+  var yr2 = cy + 160;
+  text("YEAR", CENTER_X, yr2-10, 30, true, "center");
+  text(String(pickYear), CENTER_X, yr2+74, 72, true, "center");
+  rect(CENTER_X-260, yr2+20, aw, 90, 4);
+  text("<", CENTER_X-260+aw/2, yr2+74, 54, true, "center");
+  addHit(CENTER_X-280, yr2, aw+40, 130, function(){
     if(yearOff > 0 && pickYear-1 >= YEAR_MIN){ setPickYear(pickYear-1); render(); }
   });
-  rect(yrCX+130, cy-40, aw, 80, 4);
-  text(">", yrCX+130+aw/2, cy+16, 48, true, "center");
-  addHit(yrCX+130-15, cy-60, aw+30, 120, function(){
+  rect(CENTER_X+180, yr2+20, aw, 90, 4);
+  text(">", CENTER_X+180+aw/2, yr2+74, 54, true, "center");
+  addHit(CENTER_X+180-20, yr2, aw+40, 130, function(){
     if(yearOff < 9 && pickYear+1 <= YEAR_MAX){ setPickYear(pickYear+1); render(); }
   });
-  text("YEAR", yrCX, cy+72, 26, true, "center");
 
-  if(searchMsg) text(searchMsg, CENTER_X, cy+140, 34, true, "center");
+  if(searchMsg) text(searchMsg, CENTER_X, yr2+140, 34, true, "center");
 
   // FIND GAME + CANCEL
   var fw = 560, fh = 110;

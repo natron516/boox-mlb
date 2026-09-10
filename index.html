@@ -486,20 +486,25 @@ function drawButtons(){
 
 // ================= REPLAY PICKER =================
 function drawTeamName(name, cx, cy, maxW, color){
-  // Split at last space before midpoint to get city / nickname on two lines
   var words = name.split(" ");
   var line1, line2;
   if(words.length <= 1){
     line1 = name; line2 = "";
   } else {
-    // split roughly in half by word count
     var mid = Math.ceil(words.length / 2);
     line1 = words.slice(0, mid).join(" ");
     line2 = words.slice(mid).join(" ");
   }
-  var fs = 30;
-  text(line1, cx, cy - 4, fs, true, "center", color);
-  if(line2) text(line2, cx, cy + fs + 4, fs, true, "center", color);
+  // Pick font size so the longest line fits within maxW
+  // Canvas 2d measureText uses current font; approximate: each char ~0.6x fontSize
+  var longest = line2 && line2.length > line1.length ? line2 : line1;
+  var fs = Math.floor(maxW / (longest.length * 0.6));
+  if(fs > 34) fs = 34;
+  if(fs < 18) fs = 18;
+  var lineH = fs + 6;
+  var topY = line2 ? cy - lineH/2 : cy + fs/2;
+  text(line1, cx, topY, fs, true, "center", color);
+  if(line2) text(line2, cx, topY + lineH, fs, true, "center", color);
 }
 
 function renderPicker(){

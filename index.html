@@ -178,7 +178,15 @@ function buildLineup(feed, side){
   try{
     var team = feed.liveData.boxscore.teams[side];
     var players = team.players || {};
-    // slot map: key=slot(0-8), value={seq, pl} — highest sequence per slot = current player (subs included)
+    // Get current batter id so we never hide them
+    var curBatterId = null;
+    try{
+      var ls2 = feed.liveData.linescore || {};
+      var off2 = ls2.offense || {};
+      curBatterId = off2.batter && off2.batter.id;
+    }catch(e){}
+    // Build slot map: for each slot, pick the highest-sequence player who has
+    // actually entered the game (atBats > 0, or is current batter, or is starter seq=0)
     var slots = {};
     Object.keys(players).forEach(function(k){
       var pl = players[k];
@@ -187,6 +195,10 @@ function buildLineup(feed, side){
       var slot = Math.floor(bo / 100) - 1;
       var seq = bo % 100;
       if(slot < 0 || slot >= 9) return;
+      var ab = (pl.stats && pl.stats.batting && pl.stats.batting.atBats) || 0;
+      var isCur = (pl.person && pl.person.id === curBatterId);
+      // Only include if starter (seq=0), has batted, or is current batter
+      if(seq > 0 && ab === 0 && !isCur) return;
       if(!slots[slot] || seq > slots[slot].seq){
         slots[slot] = { seq: seq, pl: pl };
       }
@@ -1326,7 +1338,7 @@ function drawPitchZone(st, py){
 function drawRecentPlays(st, y){
   var w = 1060, x = CENTER_X - w/2;
   var hdrH = 48, rowH = 46;
-  var rows = 3;
+  var rows = 5;
   var h = hdrH + rows*rowH + 10;
   if(y + h > BOT - 100) y = BOT - 100 - h;
   rect(x, y, w, h, 3);

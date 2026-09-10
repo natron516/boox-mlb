@@ -402,6 +402,10 @@ var D_1B   = { x: CENTER_X+360, y: 850 };
 var D_3B   = { x: CENTER_X-360, y: 850 };
 var MOUND  = { x: CENTER_X, y: (D_HOME.y + D_2B.y)/2 };
 
+// Field geometry constants (used by both drawDiamond and animateHit)
+var IF_POS = null; // set during drawDiamond, reused for animation targets
+var OF_POS = null;
+
 // ================= RENDER =================
 function render(){
   hitRegions = [];
@@ -667,38 +671,140 @@ function animateBall(pitchType){
 var hitAnim=null, hitAnimTarget={x:0,y:0};
 function animateHitTo(tx, ty){
   hitAnimTarget = {x:tx, y:ty};
-  var frames=14, f=0;
+  var frames=20, f=0;
   function step(){
     f++; hitAnim={t:f/frames}; render();
-    if(f<frames){ setTimeout(step,50); }
+    if(f<frames){ setTimeout(step,70); }
     else{ hitAnim=null; render(); }
   }
-  setTimeout(step,50);
+  setTimeout(step,70);
 }
-// Fallback hit target by result event type when Statcast coords are missing
-function fallbackHitTarget(eventType){
+// Pick a target: outs land at a fielder position, hits land between fielders
+function fallbackHitTarget(eventType, isHit){
   var e = (eventType||"").toLowerCase();
   var r = Math.random();
   var side = (Math.random()<0.5?-1:1);
-  var dx, dy; // offsets from home plate: dx=right(+)/left(-), dy=into field (canvas up)
-  if(e==="single"){ dx = side*(40+r*120); dy = 420+r*80; }               // shallow center
-  else if(e==="double"){ dx = side*(220+r*120); dy = 620+r*100; }        // deep gap
-  else if(e==="triple"){ dx = side*(420+r*80); dy = 560+r*120; }         // deep corner/line
-  else if(e==="home run"){ dx = side*r*180; dy = 820+r*120; }            // over the fence
-  else if(e==="groundout"||e==="forceout"||e==="fielders choice"){ dx = side*(60+r*200); dy = 180+r*120; } // infield
-  else if(e==="flyout"||e==="lineout"||e==="pop out"){ dx = side*(80+r*280); dy = 380+r*180; }            // shallow-med OF
-  else { dx = side*r*100; dy = 500+r*80; }                               // medium center
+  if(!isHit && IF_POS && OF_POS){
+    // Out: land right at a fielder
+    var isFly = (e.indexOf("flyout")>=0 || e.indexOf("fly out")>=0 || e.indexOf("pop")>=0 || e.indexOf("sac fly")>=0);
+    var group = isFly ? OF_POS : IF_POS;
+    var f = group[Math.floor(Math.random()*group.length)];
+    return { x: f.x, y: f.y };
+  }
+  if(isHit && IF_POS && OF_POS){
+    // Hit: land in the gaps between fielders
+    var LF = OF_POS[0], CF = OF_POS[1], RF = OF_POS[2];
+    if(e==="single"){
+      // shallow outfield, between IF and OF depth
+      var sx = D_HOME.x + side*(60+r*260);
+      var sy = (D_2B.y + ((IF_POS[1].y + CF.y)/2)) / 2 + 40 - r*80;
+      return { x: sx, y: sy };
+    }
+    if(e==="double"){
+      // deep gap: between LF-CF or CF-RF
+      var gapX = side<0 ? (LF.x+CF.x)/2 : (CF.x+RF.x)/2;
+      return { x: gapX + (r-0.5)*80, y: CF.y + 10 - r*40 };
+    }
+    if(e==="triple"){
+      // warning track corner
+      var cornerX = side<0 ? LF.x - 120 : RF.x + 120;
+      return { x: cornerX, y: LF.y - 40 - r*40 };
+    }
+    if(e==="home run"){
+      // way past the OF line, off screen top
+      return { x: CF.x + side*r*300, y: -80 };
+    }
+    // default hit: shallow-medium center
+    return { x: D_HOME.x + side*r*150, y: D_2B.y - 20 - r*60 };
+  }
+  // No fielder positions yet: rough offsets from home
+  var dx = side*(60+r*200), dy = 400+r*120;
   return { x: D_HOME.x + dx, y: D_HOME.y - dy };
 }
-function animateHit(coordX, coordY){
-  // Statcast field coords: home plate ~(125, 200), x=right, y=up-field
-  // Map to canvas: canvas home=D_HOME, field goes up (decreasing canvas y)
-  // Scale: ~3.2px per foot
-  var scale = 3.2;
-  var fieldOriginX = 125.42, fieldOriginY = 198.27; // Statcast home plate
-  var dx = (coordX - fieldOriginX) * scale;
-  var dy = (coordY - fieldOriginY) * scale; // positive = into field = canvas up
-  animateHitTo(D_HOME.x + dx, D_HOME.y - dy);
+function animateHit(coordX, coordY, eventType, isHit){
+  if(coordX!=null && coordY!=null){
+    // Statcast field coords: home plate ~(125, 200), x=right, y=up-field
+    // Map to canvas: canvas home=D_HOME, field goes up (decreasing canvas y)
+    // Scale: ~3.2px per foot
+    var scale = 3.2;
+    var fieldOriginX = 125.42, fieldOriginY = 198.27; // Statcast home plate
+    var dx = (coordX - fieldOriginX) * scale;
+    var dy = (coordY - fieldOriginY) * scale; // positive = into field = canvas up
+    animateHitTo(D_HOME.x + dx, D_HOME.y - dy);
+    return;
+  }
+  var tgt = fallbackHitTarget(eventType, isHit);
+  animateHitTo(tgt.x, tgt.y);
+}
+
+// ---- runner animation ----
+var runnerAnim = null;
+// {fromX, fromY, toX, toY, t, frames, onDone}
+function animateRunner(fromX, fromY, toX, toY, onDone){
+  if(runnerAnim) return; // one at a time
+  runnerAnim = {fromX:fromX, fromY:fromY, toX:toX, toY:toY, t:0, frames:16, onDone:onDone};
+  function step(){
+    if(!runnerAnim) return;
+    runnerAnim.t++;
+    render();
+    if(runnerAnim.t < runnerAnim.frames){
+      setTimeout(step, 60);
+    } else {
+      var cb = runnerAnim.onDone;
+      runnerAnim = null;
+      render();
+      if(cb) cb();
+    }
+  }
+  setTimeout(step, 60);
+}
+// Base coordinates matching where runners stand in drawDiamond
+function baseCoord(b){
+  if(b===0) return {x: D_HOME.x, y: D_HOME.y};
+  if(b===1) return {x: D_1B.x + 72, y: D_1B.y};
+  if(b===2) return {x: D_2B.x, y: D_2B.y - 72};
+  if(b===3) return {x: D_3B.x - 72, y: D_3B.y};
+  // scored: home plate then off-screen below
+  return {x: D_HOME.x, y: D_HOME.y + 100};
+}
+// Run a list of {from, to} base-index steps sequentially, then call done
+function runRunnerSteps(steps, done){
+  if(!steps || !steps.length){ if(done) done(); return; }
+  var s = steps.shift();
+  var a = baseCoord(s.from), b = baseCoord(s.to);
+  animateRunner(a.x, a.y, b.x, b.y, function(){ runRunnerSteps(steps, done); });
+}
+// Batter-reaches-first events
+function batterReachesFirst(evName){
+  var e = (evName||"").toLowerCase();
+  return e==="single" || e==="double" || e==="triple" || e==="home run" ||
+         e==="walk" || e==="intent walk" || e==="intentional walk" ||
+         e==="hit by pitch" || e==="fielders choice" || e==="fielders choice out";
+}
+// Build runner steps for advancing from play (prev -> cur matchup postOn*)
+function buildRunnerSteps(prevPlay, curPlay){
+  var steps = [];
+  try{
+    var pm = prevPlay ? (prevPlay.matchup||{}) : {};
+    var cm = curPlay ? (curPlay.matchup||{}) : {};
+    var p1 = pm.postOnFirst ? pm.postOnFirst.id : null;
+    var p2 = pm.postOnSecond ? pm.postOnSecond.id : null;
+    var p3 = pm.postOnThird ? pm.postOnThird.id : null;
+    var c1 = cm.postOnFirst ? cm.postOnFirst.id : null;
+    var c2 = cm.postOnSecond ? cm.postOnSecond.id : null;
+    var c3 = cm.postOnThird ? cm.postOnThird.id : null;
+    // only within the same half-inning
+    var sameHalf = prevPlay && curPlay && prevPlay.about && curPlay.about &&
+      prevPlay.about.inning===curPlay.about.inning &&
+      prevPlay.about.halfInning===curPlay.about.halfInning;
+    if(sameHalf){
+      // lead runners first: 3B->home, 2B->3B, 1B->2B
+      if(p3 && p3!==c3 && p3!==c2 && p3!==c1) steps.push({from:3, to:4});
+      if(p2 && p2===c3) steps.push({from:2, to:3});
+      if(p1 && p1===c2) steps.push({from:1, to:2});
+    }
+  }catch(e){}
+  return steps;
 }
 
 // ---- replay auto-advance ----
@@ -707,7 +813,7 @@ function stopReplayTimer(){ if(replayTimer){ clearInterval(replayTimer); replayT
 function startReplayTimer(){
   stopReplayTimer();
   replayTimer = setInterval(function(){
-    if(mode!=="replay" || replayPaused || ballAnimating) return;
+    if(mode!=="replay" || replayPaused || ballAnimating || runnerAnim) return;
     var play = replayPlays[replayIdx];
     if(retroGame && !replayFeed){
       // Retrosheet replay: pitches from pc string, no playEvents
@@ -718,14 +824,23 @@ function startReplayTimer(){
         render();
       } else if(replayIdx < replayPlays.length-1){
         var lastChar = (play.pc||"").charAt((play.pc||"").length-1);
+        var retroIsHit = (play.desc==="Single"||play.desc==="Double"||play.desc==="Ground Rule Double"||play.desc==="Triple"||play.desc==="Home Run");
         if(lastChar==="X"){
           var evMap = {"Single":"single","Double":"double","Ground Rule Double":"double","Triple":"triple","Home Run":"home run","Out":"flyout","Error":"groundout","Fielder's Choice":"fielders choice","Force Out":"groundout","Double Play":"groundout"};
-          var tgt = fallbackHitTarget(evMap[play.desc]||"");
+          var tgt = fallbackHitTarget(evMap[play.desc]||"", retroIsHit);
           animateHitTo(tgt.x, tgt.y);
         }
-        replayIdx++;
-        replayPitchIdx = 0;
-        render();
+        if(retroIsHit || play.desc==="Walk" || play.desc==="Hit By Pitch" || play.desc==="Fielder's Choice"){
+          runRunnerSteps([{from:0, to:1}], function(){
+            replayIdx++;
+            replayPitchIdx = 0;
+            render();
+          });
+        } else {
+          replayIdx++;
+          replayPitchIdx = 0;
+          render();
+        }
       } else {
         stopReplayTimer();
         render();
@@ -752,9 +867,12 @@ function startReplayTimer(){
       replayPitchIdx++;
       render();
     } else if(replayIdx < replayPlays.length-1){
-      // all pitches shown -> check if last pitch was in play, fire hit arc
+      // all pitches shown -> fire hit arc if in play, then runner animations, then advance
+      var lastPlay = replayPlays[replayIdx];
+      var evName = (lastPlay && lastPlay.result && lastPlay.result.event) || "";
+      var evLow = evName.toLowerCase();
+      var isHitEv = (evLow==="single"||evLow==="double"||evLow==="triple"||evLow==="home run"||evLow==="ground rule double");
       try{
-        var lastPlay = replayPlays[replayIdx];
         if(lastPlay && lastPlay.playEvents){
           var pevts2 = lastPlay.playEvents;
           for(var pi2=pevts2.length-1;pi2>=0;pi2--){
@@ -763,11 +881,9 @@ function startReplayTimer(){
               if(callCode==="X"){
                 var hd = pevts2[pi2].hitData;
                 if(hd && hd.coordinates && hd.coordinates.coordX!=null){
-                  animateHit(hd.coordinates.coordX, hd.coordinates.coordY);
+                  animateHit(hd.coordinates.coordX, hd.coordinates.coordY, evName, isHitEv);
                 } else {
-                  var evName = (lastPlay.result && lastPlay.result.event) || "";
-                  var tgt = fallbackHitTarget(evName);
-                  animateHitTo(tgt.x, tgt.y);
+                  animateHit(null, null, evName, isHitEv);
                 }
               }
               break;
@@ -775,9 +891,20 @@ function startReplayTimer(){
           }
         }
       }catch(e){}
-      replayIdx++;
-      replayPitchIdx = 0;
-      render();
+      // runner animation chain: lead runners advance, then batter to 1B
+      var steps = buildRunnerSteps(replayIdx>0 ? replayPlays[replayIdx-1] : null, lastPlay);
+      if(batterReachesFirst(evName)) steps.push({from:0, to:1});
+      if(steps.length){
+        runRunnerSteps(steps, function(){
+          replayIdx++;
+          replayPitchIdx = 0;
+          render();
+        });
+      } else {
+        replayIdx++;
+        replayPitchIdx = 0;
+        render();
+      }
     } else {
       stopReplayTimer();
       render();
@@ -1236,6 +1363,7 @@ function drawDiamond(st){
     {x: CENTER_X-170, y: D_2B.y+90}, // SS
     {x: D_3B.x-70,  y: D_3B.y-70}    // 3B
   ];
+  IF_POS = IF;
   IF.forEach(function(f){ stickFigure(f.x, f.y, 60, 4); });
   // outfielders — between box score and 2B
   var OF = [
@@ -1243,6 +1371,7 @@ function drawDiamond(st){
     {x: CENTER_X,     y: D_2B.y-90},  // CF
     {x: CENTER_X+420, y: D_2B.y-40}   // RF
   ];
+  OF_POS = OF;
   OF.forEach(function(f){ stickFigure(f.x, f.y, 50, 3); });
 
   // runners on base + name labels
@@ -1257,6 +1386,14 @@ function drawDiamond(st){
   if(st.bases[3]){
     stickFigure(D_3B.x, D_3B.y, 80);
     text(lastName(st.bases[3]), D_3B.x, D_3B.y-80-14, 26, true, "center");
+  }
+
+  // animated runner in motion
+  if(runnerAnim){
+    var rt = runnerAnim.t / runnerAnim.frames;
+    var rx = runnerAnim.fromX + (runnerAnim.toX - runnerAnim.fromX)*rt;
+    var ry = runnerAnim.fromY + (runnerAnim.toY - runnerAnim.fromY)*rt;
+    stickFigure(rx, ry, 80, 4); // running pose
   }
 
   // batter at plate

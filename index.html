@@ -15,6 +15,7 @@
 </style>
 </head>
 <body>
+<div id="fsbtn" onclick="var el=document.documentElement,req=el.requestFullscreen||el.webkitRequestFullscreen||el.mozRequestFullScreen;if(req){req.call(el).then(function(){document.getElementById('fsbtn').style.display='none';}).catch(function(){document.getElementById('fsbtn').style.display='none';});}else{document.getElementById('fsbtn').style.display='none';}" style="position:fixed;top:0;left:0;width:100%;height:80px;background:#000;color:#fff;font-size:36px;font-weight:bold;text-align:center;line-height:80px;z-index:99999;cursor:pointer;">⛶ TAP FOR FULLSCREEN</div>
 <canvas id="cv"></canvas>
 <script>
 (function(){

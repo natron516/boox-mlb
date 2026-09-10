@@ -534,7 +534,7 @@ function render(){
   var zoneBottom = drawPitchZone(st, bandBottom + 14);
 
   // ---- recent plays ----
-  drawRecentPlays(st, zoneBottom + 12);
+  drawRecentPlays(st, zoneBottom + 40);
 
     drawScoreboard();
   drawButtons();
@@ -562,10 +562,12 @@ function drawScoreboard(){
 function drawButtons(){
   var by = BOT - 90;
   if(mode==="replay"){
-    invBand(CENTER_X-160, by, 320, 70, replayPaused ? "> RESUME" : "|| PAUSE", 34);
-    addHit(CENTER_X-160, by, 320, 70, toggleReplayPause);
-    invBand(CW-44-220, by, 220, 70, "X EXIT", 34);
-    addHit(CW-44-220, by, 220, 70, exitReplay);
+    var exitX = CW-44-220;
+    var pauseX = exitX - 24 - 320;
+    invBand(pauseX, by, 320, 70, replayPaused ? "> RESUME" : "|| PAUSE", 34);
+    addHit(pauseX, by, 320, 70, toggleReplayPause);
+    invBand(exitX, by, 220, 70, "X EXIT", 34);
+    addHit(exitX, by, 220, 70, exitReplay);
     return;
   }
   invBand(44, by, 200, 70, "EXIT", 34);
@@ -700,6 +702,7 @@ function openPicker(){
 function exitReplay(){
   mode = "live";
   stopReplayTimer();
+  batterState = "up";
   replayFeed = null; retroGame = null; replayPlays = []; replayIdx = 0; replayPitchIdx = 0;
   render();
   poll();
@@ -824,13 +827,28 @@ function animateRunner(fromX, fromY, toX, toY, onDone, frames, delayMs){
   }
   setTimeout(step, dm);
 }
-// Dugout positions beside home plate
-var DUGOUT_HOME = {x: D_HOME.x + 200, y: D_HOME.y + 50};
-var DUGOUT_VIS  = {x: D_HOME.x - 340, y: D_HOME.y + 50};
+// Dugout positions beside home plate (spread wide so they don't hit the AT BAT line)
+var DUGOUT_HOME = {x: D_HOME.x + 380, y: D_HOME.y + 80};
+var DUGOUT_VIS  = {x: D_HOME.x - 380 - 140, y: D_HOME.y + 80};
+// Batter visibility state machine: up | running | dugout | incoming
+var batterState = "up";
+// Next batter walks in from the dugout to the plate
+function animateBatterIncoming(isTop, onDone){
+  var d = isTop ? DUGOUT_VIS : DUGOUT_HOME;
+  batterState = "incoming";
+  animateRunner(d.x + 70, d.y + 25, D_HOME.x, D_HOME.y, function(){
+    batterState = "up";
+    if(onDone) onDone();
+  }, 12, 70);
+}
 // Batter walks from home plate to the near dugout (out)
 function animateBatterOut(isTop, onDone){
   var d = isTop ? DUGOUT_VIS : DUGOUT_HOME;
-  animateRunner(D_HOME.x, D_HOME.y, d.x + 70, d.y + 25, onDone, 12, 80);
+  batterState = "running";
+  animateRunner(D_HOME.x, D_HOME.y, d.x + 70, d.y + 25, function(){
+    batterState = "dugout";
+    if(onDone) onDone();
+  }, 12, 80);
 }
 // Base coordinates matching where runners stand in drawDiamond
 function baseCoord(b){
@@ -904,22 +922,20 @@ function startReplayTimer(){
           var tgt = fallbackHitTarget(evMap[play.desc]||"", retroIsHit);
           animateHitTo(tgt.x, tgt.y);
         }
-        if(retroIsHit || play.desc==="Walk" || play.desc==="Hit By Pitch" || play.desc==="Fielder's Choice"){
-          runRunnerSteps([{from:0, to:1}], function(){
-            replayIdx++;
-            replayPitchIdx = 0;
-            render();
-          });
-        } else if(play.desc==="Out"||play.desc==="Strikeout"||play.desc==="Force Out"||play.desc==="Double Play"||play.desc==="Error"){
-          animateBatterOut(play.t===0, function(){
-            replayIdx++;
-            replayPitchIdx = 0;
-            render();
-          });
-        } else {
+        var retroAdvance = function(){
           replayIdx++;
           replayPitchIdx = 0;
           render();
+          var np = replayPlays[replayIdx];
+          animateBatterIncoming(np ? np.t===0 : true);
+        };
+        if(retroIsHit || play.desc==="Walk" || play.desc==="Hit By Pitch" || play.desc==="Fielder's Choice"){
+          batterState = "running";
+          runRunnerSteps([{from:0, to:1}], retroAdvance);
+        } else if(play.desc==="Out"||play.desc==="Strikeout"||play.desc==="Force Out"||play.desc==="Double Play"||play.desc==="Error"){
+          animateBatterOut(play.t===0, retroAdvance);
+        } else {
+          retroAdvance();
         }
       } else {
         stopReplayTimer();
@@ -979,11 +995,15 @@ function startReplayTimer(){
         replayIdx++;
         replayPitchIdx = 0;
         render();
+        var np2 = replayPlays[replayIdx];
+        var npTop = !!(np2 && np2.about && np2.about.halfInning==="top");
+        animateBatterIncoming(npTop);
       };
       var finish = isOutEv ? function(){
         var top2 = !!(lastPlay && lastPlay.about && lastPlay.about.halfInning==="top");
         animateBatterOut(top2, advance);
       } : advance;
+      if(batterReachesFirst(evName)) batterState = "running";
       if(steps.length){
         runRunnerSteps(steps, finish);
       } else if(isOutEv){
@@ -1490,8 +1510,8 @@ function drawDiamond(st){
     stickFigure(rx, ry, 80, 4); // running pose
   }
 
-  // batter at plate
-  if(st.batter && st.state==="Live"){
+  // batter at plate — only when batterState is "up" (running/dugout/incoming handled by runnerAnim)
+  if(st.batter && st.state==="Live" && batterState==="up"){
     var bx = st.batSide==="L" ? D_HOME.x+70 : D_HOME.x-70;
     batterFigure(bx, D_HOME.y+20, 80, st.batSide);
   }
@@ -1520,15 +1540,12 @@ function drawDiamond(st){
 // ---- pitch zone + pitch log, centered below the B/S/O band (always visible) ----
 // Returns the bottom y of the box.
 function drawPitchZone(st, py){
-  var totW = 600;
-  var x0 = CENTER_X - totW/2;
+  var gap = 60;
   var hdr = 30;
-  // cap height so the box never extends past CH - 140
-  var zh = Math.min(170, (CH - 140) - (py + hdr));
-  if(zh < 80) zh = 80;
-  // Zone grid: left
-  var zw = 200;
-  var zx = x0;
+  var zh = 130;
+  // Zone grid: left of center
+  var zw = 220;
+  var zx = CENTER_X - gap/2 - zw;
   invBand(zx, py, zw, hdr, "ZONE", 22);
   rect(zx, py+hdr, zw, zh, 3);
   for(var i=1;i<3;i++) line(zx+i*zw/3, py+hdr, zx+i*zw/3, py+hdr+zh, 2);
@@ -1545,9 +1562,9 @@ function drawPitchZone(st, py){
     ctx.fillStyle="#000";
     ctx.beginPath(); ctx.arc(dx,dy,10,0,Math.PI*2); ctx.fill();
   }
-  // Pitch log: right — show ALL pitches of the current at-bat
-  var lx = x0 + zw + 14;
-  var lw = totW - zw - 14;
+  // Pitch log: right of center — show ALL pitches of the current at-bat
+  var lx = CENTER_X + gap/2;
+  var lw = 420;
   invBand(lx, py, lw, hdr, "PITCHES", 22);
   rect(lx, py+hdr, lw, zh, 2);
   var n = st.pitches.length;
@@ -1568,10 +1585,10 @@ function drawPitchZone(st, py){
 // ---- recent plays ----
 function drawRecentPlays(st, y){
   var w = 1060, x = CENTER_X - w/2;
-  var hdrH = 48, rowH = 46;
-  var rows = 5;
+  var hdrH = 48, rowH = 42;
+  var rows = 4;
   var h = hdrH + rows*rowH + 10;
-  if(y + h > BOT - 100) y = BOT - 100 - h;
+  if(y + h > BOT - 110) y = BOT - 110 - h;
   rect(x, y, w, h, 3);
   invBand(x, y, w, hdrH, "RECENT PLAYS", 32);
   for(var i=0;i<rows;i++){

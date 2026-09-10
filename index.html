@@ -171,6 +171,67 @@ function setPickYear(y){
   if(pickB!=null && !has(pickB)) pickB = null;
 }
 var searchMsg = "";
+var retroAvailable = {};   // all team codes with games this year
+var retroOpponents = {};   // retroOpponents[codeA] = {codeB: true, ...}
+var retroLoading = false;
+function loadRetroIndex(year, cb){
+  retroLoading = true;
+  render();
+  fetch(RS_BASE + "idx.json").then(function(r){ return r.json(); }).then(function(idx){
+    var games = idx[String(year)] || [];
+    retroAvailable = {};
+    retroOpponents = {};
+    games.forEach(function(g){
+      retroAvailable[g.home] = true;
+      retroAvailable[g.vis] = true;
+      if(!retroOpponents[g.home]) retroOpponents[g.home] = {};
+      if(!retroOpponents[g.vis]) retroOpponents[g.vis] = {};
+      retroOpponents[g.home][g.vis] = true;
+      retroOpponents[g.vis][g.home] = true;
+    });
+    retroLoading = false;
+    if(cb) cb();
+  }).catch(function(){ retroLoading = false; if(cb) cb(); });
+}
+function autoSelectPair(){
+  var codes = Object.keys(retroAvailable);
+  if(!codes.length){ render(); return; }
+  var codeToId = {};
+  ALL_TEAMS.forEach(function(t){
+    var rc = retroCodesForTeam(t.id, pickYear);
+    rc.forEach(function(c){ codeToId[c] = t.id; });
+  });
+  var codeA = codes[0];
+  var opps = Object.keys(retroOpponents[codeA] || {});
+  if(opps.length){
+    var codeB = opps[0];
+    if(!pickA && codeToId[codeA]) pickA = codeToId[codeA];
+    if(!pickB && codeToId[codeB]) pickB = codeToId[codeB];
+  }
+  render();
+}
+function teamIsValidOpponent(teamId){
+  if(!pickA) return true; // nothing selected yet, show all
+  var aCodes = retroCodesForTeam(pickA, pickYear);
+  var bCodes = retroCodesForTeam(teamId, pickYear);
+  for(var i=0;i<aCodes.length;i++){
+    var opps = retroOpponents[aCodes[i]] || {};
+    for(var j=0;j<bCodes.length;j++){
+      if(opps[bCodes[j]]) return true;
+    }
+  }
+  return false;
+}
+function findRetroGameAndStart(){ findRetroGame(); }
+function onPickYearChanged(){
+  searchMsg = "";
+  if(pickYear < 1974){
+    pickB = null;
+    loadRetroIndex(pickYear, autoSelectPair);
+  } else {
+    render();
+  }
+}
 var replayFeed = null;
 var replayPlays = [];
 var replayIdx = 0;
@@ -631,8 +692,45 @@ function renderPicker(){
       (function(id){ addHit(bx,by,btnW,btnH,function(){ setFn(id); render(); }); })(t.id);
     }
   }
-  grid(xA, pickA, function(id){ pickA=id; });
-  grid(xB, pickB, function(id){ pickB=id; });
+  var retroMode = pickYear < 1974;
+
+  if(retroMode && retroLoading){
+    text("LOADING...", CENTER_X, CH/2, 64, true, "center");
+  }
+
+  // Left grid (Team A): always all teams for the year
+  grid(xA, pickA, function(id){
+    pickA = id;
+    if(pickYear < 1974) pickB = null; // opponents change
+  });
+
+  // Right grid (Team B): retro years grey out invalid opponents, auto-start on tap
+  if(retroMode){
+    for(var bi=0;bi<TEAMS_Y.length;bi++){
+      var bcol = bi%3, brow = Math.floor(bi/3);
+      var bbx = xB + bcol*(btnW+gap);
+      var bby = topY + brow*(btnH+gap);
+      var bt = TEAMS_Y[bi];
+      var bSel = (pickB===bt.id);
+      var bValid = teamIsValidOpponent(bt.id) && bt.id!==pickA;
+      if(bSel){
+        fillRect(bbx,bby,btnW,btnH);
+        drawTeamName(teamNameForYear(bt,pickYear), bbx+btnW/2, bby+btnH/2, btnW-16, "#fff");
+      } else if(bValid){
+        rect(bbx,bby,btnW,btnH,3);
+        drawTeamName(teamNameForYear(bt,pickYear), bbx+btnW/2, bby+btnH/2, btnW-16, "#000");
+        (function(id){ addHit(bbx,bby,btnW,btnH,function(){ pickB=id; findRetroGameAndStart(); }); })(bt.id);
+      } else {
+        // greyed out — lighter, no hit zone
+        ctx.globalAlpha = 0.3;
+        rect(bbx,bby,btnW,btnH,2);
+        drawTeamName(teamNameForYear(bt,pickYear), bbx+btnW/2, bby+btnH/2, btnW-16, "#000");
+        ctx.globalAlpha = 1.0;
+      }
+    }
+  } else {
+    grid(xB, pickB, function(id){ pickB=id; });
+  }
 
   // season selector: DECADE stacked above YEAR, both centered
   var cy = topY + 260;
@@ -646,13 +744,13 @@ function renderPicker(){
   text("<", CENTER_X-260+aw/2, cy+74, 54, true, "center");
   addHit(CENTER_X-280, cy, aw+40, 130, function(){
     var d = Math.floor(pickYear/10)*10 - 10;
-    if(d + 9 >= YEAR_MIN){ setPickYear(Math.max(YEAR_MIN, d + (pickYear%10))); render(); }
+    if(d + 9 >= YEAR_MIN){ setPickYear(Math.max(YEAR_MIN, d + (pickYear%10))); onPickYearChanged(); }
   });
   rect(CENTER_X+180, cy+20, aw, 90, 4);
   text(">", CENTER_X+180+aw/2, cy+74, 54, true, "center");
   addHit(CENTER_X+180-20, cy, aw+40, 130, function(){
     var d = Math.floor(pickYear/10)*10 + 10;
-    if(d <= YEAR_MAX){ setPickYear(Math.min(YEAR_MAX, d + (pickYear%10))); render(); }
+    if(d <= YEAR_MAX){ setPickYear(Math.min(YEAR_MAX, d + (pickYear%10))); onPickYearChanged(); }
   });
   // --- Year row (below decade) ---
   var yr2 = cy + 160;
@@ -661,21 +759,23 @@ function renderPicker(){
   rect(CENTER_X-260, yr2+20, aw, 90, 4);
   text("<", CENTER_X-260+aw/2, yr2+74, 54, true, "center");
   addHit(CENTER_X-280, yr2, aw+40, 130, function(){
-    if(yearOff > 0 && pickYear-1 >= YEAR_MIN){ setPickYear(pickYear-1); render(); }
+    if(yearOff > 0 && pickYear-1 >= YEAR_MIN){ setPickYear(pickYear-1); onPickYearChanged(); }
   });
   rect(CENTER_X+180, yr2+20, aw, 90, 4);
   text(">", CENTER_X+180+aw/2, yr2+74, 54, true, "center");
   addHit(CENTER_X+180-20, yr2, aw+40, 130, function(){
-    if(yearOff < 9 && pickYear+1 <= YEAR_MAX){ setPickYear(pickYear+1); render(); }
+    if(yearOff < 9 && pickYear+1 <= YEAR_MAX){ setPickYear(pickYear+1); onPickYearChanged(); }
   });
 
   if(searchMsg) text(searchMsg, CENTER_X, yr2+140, 34, true, "center");
 
-  // FIND GAME + CANCEL
+  // FIND GAME + CANCEL (FIND GAME only for modern/StatsAPI years; retro auto-starts on Team B tap)
   var fw = 560, fh = 110;
   var fy = CH - 380;
   var ready = pickA!=null && pickB!=null;
-  if(ready){
+  if(retroMode){
+    text("TAP TEAM B TO START", CENTER_X, fy+fh/2+12, 40, true, "center", "#999");
+  } else if(ready){
     invBand(CENTER_X-fw/2, fy, fw, fh, "FIND GAME", 48);
     addHit(CENTER_X-fw/2, fy, fw, fh, findGame);
   } else {
@@ -698,7 +798,11 @@ function openPicker(){
   searchMsg = "";
   clockRunning = false;
   if(pollTimer){ clearTimeout(pollTimer); pollTimer = null; }
-  render();
+  if(pickYear < 1974){
+    loadRetroIndex(pickYear, autoSelectPair);
+  } else {
+    render();
+  }
 }
 
 function exitReplay(){

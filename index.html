@@ -475,29 +475,72 @@ function diamondBase(cx,cy,size,filled){
   ctx.restore();
 }
 // stick figure: total height h, anchored so feet at (x,y)
+// BASE RUNNER / ANIMATED RUNNER: standard stick figure (upright, arms out)
 function stickFigure(x,y,h,lw){
   var headR = h*0.14;
   var top = y - h;
   ctx.lineWidth = lw || Math.max(3, h*0.05);
   ctx.strokeStyle = "#000";
-  // head
   ctx.beginPath(); ctx.arc(x, top+headR, headR, 0, Math.PI*2); ctx.stroke();
   var neck = top + headR*2;
   var hip = y - h*0.35;
-  // body
   ctx.beginPath(); ctx.moveTo(x,neck); ctx.lineTo(x,hip); ctx.stroke();
-  // arms
   var arm = h*0.28, ay = neck + h*0.08;
   ctx.beginPath(); ctx.moveTo(x,ay); ctx.lineTo(x-arm*0.7, ay+arm*0.6); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(x,ay); ctx.lineTo(x+arm*0.7, ay+arm*0.6); ctx.stroke();
-  // legs
   ctx.beginPath(); ctx.moveTo(x,hip); ctx.lineTo(x-h*0.18, y); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(x,hip); ctx.lineTo(x+h*0.18, y); ctx.stroke();
 }
-// batter with bat, side: "L" batter stands right of plate (facing left) etc.
+
+// INFIELDER: crouched ready stance — filled square head, arms low and wide
+function infielderFigure(x,y,h,lw){
+  var lw2 = lw || Math.max(3, h*0.06);
+  ctx.lineWidth = lw2;
+  ctx.strokeStyle = "#000";
+  ctx.fillStyle = "#000";
+  var headS = h*0.22;
+  var top = y - h;
+  // filled square head
+  ctx.fillRect(x - headS/2, top, headS, headS);
+  var neck = top + headS;
+  var hip = y - h*0.28; // crouched = higher hip
+  // shorter body (crouched)
+  ctx.beginPath(); ctx.moveTo(x, neck); ctx.lineTo(x, hip); ctx.stroke();
+  // arms spread wide and LOW (ready position)
+  var arm = h*0.38;
+  ctx.beginPath(); ctx.moveTo(x, neck+h*0.06); ctx.lineTo(x-arm, hip+h*0.08); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, neck+h*0.06); ctx.lineTo(x+arm, hip+h*0.08); ctx.stroke();
+  // legs bent outward (crouched)
+  ctx.beginPath(); ctx.moveTo(x,hip); ctx.lineTo(x-h*0.26, y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x,hip); ctx.lineTo(x+h*0.26, y); ctx.stroke();
+}
+
+// OUTFIELDER: tall upright with one hand up (shielding eyes / tracking fly ball)
+function outfielderFigure(x,y,h,lw){
+  var lw2 = lw || Math.max(3, h*0.05);
+  ctx.lineWidth = lw2;
+  ctx.strokeStyle = "#000";
+  // triangle head (cap brim effect)
+  var headR = h*0.13;
+  var top = y - h;
+  ctx.beginPath();
+  ctx.moveTo(x, top); ctx.lineTo(x+headR*1.3, top+headR*2); ctx.lineTo(x-headR*1.3, top+headR*2); ctx.closePath(); ctx.stroke();
+  var neck = top + headR*2;
+  var hip = y - h*0.38;
+  // body
+  ctx.beginPath(); ctx.moveTo(x,neck); ctx.lineTo(x,hip); ctx.stroke();
+  // one arm UP (tracking), one arm relaxed down
+  var ay = neck + h*0.08;
+  ctx.beginPath(); ctx.moveTo(x,ay); ctx.lineTo(x+h*0.22, ay-h*0.28); ctx.stroke(); // arm up
+  ctx.beginPath(); ctx.moveTo(x,ay); ctx.lineTo(x-h*0.22, ay+h*0.22); ctx.stroke(); // arm down
+  // legs straight
+  ctx.beginPath(); ctx.moveTo(x,hip); ctx.lineTo(x-h*0.15, y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x,hip); ctx.lineTo(x+h*0.15, y); ctx.stroke();
+}
+
+// BATTER: stick figure with bat
 function batterFigure(x,y,h,side){
   stickFigure(x,y,h);
-  // bat: angled line from shoulder up
   var neck = y - h + h*0.28;
   ctx.lineWidth = Math.max(4, h*0.06);
   ctx.beginPath();
@@ -1584,7 +1627,7 @@ function drawDiamond(st){
     {x: D_3B.x-70,  y: D_3B.y-70}    // 3B
   ];
   IF_POS = IF;
-  IF.forEach(function(f){ stickFigure(f.x, f.y, 60, 4); });
+  IF.forEach(function(f){ infielderFigure(f.x, f.y, 60, 4); });
   // outfielders — between box score and 2B
   var OF = [
     {x: CENTER_X-420, y: D_2B.y-40},  // LF
@@ -1592,7 +1635,7 @@ function drawDiamond(st){
     {x: CENTER_X+420, y: D_2B.y-40}   // RF
   ];
   OF_POS = OF;
-  OF.forEach(function(f){ stickFigure(f.x, f.y, 50, 3); });
+  OF.forEach(function(f){ outfielderFigure(f.x, f.y, 50, 3); });
 
   // runners on base + name labels
   if(st.bases[1]){

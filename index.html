@@ -504,16 +504,43 @@ function exitReplay(){
   poll();
 }
 
+// ---- pitch ball animation ----
+var ballAnim = null; // {t: 0..1}
+var ballAnimating = false;
+function animateBall(done){
+  if(ballAnimating){ if(done) done(); return; }
+  ballAnimating = true;
+  var frames = 8, f = 0;
+  function step(){
+    f++;
+    ballAnim = { t: f/frames };
+    render();
+    if(f < frames){
+      requestAnimationFrame(step);
+    } else {
+      ballAnim = null;
+      ballAnimating = false;
+      render();
+      if(done) done();
+    }
+  }
+  requestAnimationFrame(step);
+}
+
 // ---- replay auto-advance ----
 var replayTimer = null, replayPaused = false;
 function stopReplayTimer(){ if(replayTimer){ clearInterval(replayTimer); replayTimer = null; } }
 function startReplayTimer(){
   stopReplayTimer();
   replayTimer = setInterval(function(){
-    if(mode!=="replay" || replayPaused) return;
+    if(mode!=="replay" || replayPaused || ballAnimating) return;
     if(replayIdx < replayPlays.length-1){
-      replayIdx++;
-      render();
+      // ball in flight from mound to home, then show the play result
+      animateBall(function(){
+        if(mode!=="replay") return;
+        replayIdx++;
+        render();
+      });
     } else {
       stopReplayTimer();
       render();
@@ -815,6 +842,15 @@ function drawDiamond(st){
   ctx.fillStyle="#000";
   ctx.beginPath(); ctx.arc(MOUND.x, MOUND.y, 22, 0, Math.PI*2); ctx.fill();
 
+  // pitched ball in flight (mound -> home plate)
+  if(ballAnim){
+    var bt = ballAnim.t;
+    var ballX = MOUND.x + (D_HOME.x - MOUND.x)*bt;
+    var ballY = MOUND.y + (D_HOME.y - MOUND.y)*bt;
+    ctx.fillStyle="#000";
+    ctx.beginPath(); ctx.arc(ballX, ballY, 14, 0, Math.PI*2); ctx.fill();
+  }
+
   // fielders (infield)
   var IF = [
     {x: D_1B.x+70,  y: D_1B.y-70},   // 1B
@@ -980,6 +1016,7 @@ function poll(){
       var c = {b:st.b,s:st.s,o:st.o,id:st.batterId};
       if(st.state==="Live" && (!prevCount || prevCount.b!==c.b || prevCount.s!==c.s || prevCount.o!==c.o || prevCount.id!==c.id)){
         resetPitchClock(runnersOn);
+        if(prevCount) animateBall(); // new pitch detected -> ball in flight
       }
       if(st.state!=="Live") clockRunning = false;
       prevCount = c;

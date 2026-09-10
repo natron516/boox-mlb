@@ -485,6 +485,23 @@ function drawButtons(){
 }
 
 // ================= REPLAY PICKER =================
+function drawTeamName(name, cx, cy, maxW, color){
+  // Split at last space before midpoint to get city / nickname on two lines
+  var words = name.split(" ");
+  var line1, line2;
+  if(words.length <= 1){
+    line1 = name; line2 = "";
+  } else {
+    // split roughly in half by word count
+    var mid = Math.ceil(words.length / 2);
+    line1 = words.slice(0, mid).join(" ");
+    line2 = words.slice(mid).join(" ");
+  }
+  var fs = 30;
+  text(line1, cx, cy - 4, fs, true, "center", color);
+  if(line2) text(line2, cx, cy + fs + 4, fs, true, "center", color);
+}
+
 function renderPicker(){
   text("REPLAY PICKER", 60, 120, 64, true);
 
@@ -508,10 +525,10 @@ function renderPicker(){
       var t = TEAMS_Y[i];
       if(sel===t.id){
         fillRect(bx,by,btnW,btnH);
-        text(t.n||t.c, bx+btnW/2, by+btnH/2+18, 34, true, "center", "#fff");
+        drawTeamName(t.n||t.c, bx+btnW/2, by+btnH/2, btnW-16, "#fff");
       } else {
         rect(bx,by,btnW,btnH,3);
-        text(t.n||t.c, bx+btnW/2, by+btnH/2+18, 34, true, "center");
+        drawTeamName(t.n||t.c, bx+btnW/2, by+btnH/2, btnW-16, "#000");
       }
       (function(id){ addHit(bx,by,btnW,btnH,function(){ setFn(id); render(); }); })(t.id);
     }

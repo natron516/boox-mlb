@@ -1281,7 +1281,8 @@ function deriveReplayState(){
   st.awayPitcher = st.isTop ? null : defP;
 
   // recent plays: completed plays up to and including current
-  var done = replayPlays.slice(0, replayIdx+1).filter(function(p){ return p.result && p.result.description; });
+  // Only show plays that have COMPLETED before the current one — not the play being pitched now
+  var done = replayPlays.slice(0, replayIdx).filter(function(p){ return p.result && p.result.description; });
   st.recent = done.slice(-8).reverse().map(function(p){
     return { desc: p.result.description, aw: p.result.awayScore, hm: p.result.homeScore, inn: p.about.inning, top: p.about.halfInning==="top" };
   });

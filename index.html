@@ -57,6 +57,7 @@ var searchMsg = "";
 var replayFeed = null;
 var replayPlays = [];
 var replayIdx = 0;
+var replayPitchIdx = 0; // pitches shown of current play: 0 = play intro (batter up, no pitches yet)
 var replayLabel = "";
 var hitRegions = []; // {x,y,w,h,fn}
 function addHit(x,y,w,h,fn){ hitRegions.push({x:x,y:y,w:w,h:h,fn:fn}); }
@@ -120,17 +121,31 @@ function getPlayer(feed, id){
 }
 
 function buildLineup(feed, side){
-  var out = [];
+  var out = new Array(9).fill(null);
   try{
     var team = feed.liveData.boxscore.teams[side];
-    var order = team.battingOrder || [];
-    for(var i=0;i<Math.min(9,order.length);i++){
-      var pl = team.players["ID"+order[i]];
-      if(!pl){ out.push(null); continue; }
+    var players = team.players || {};
+    // slot map: key=slot(0-8), value={seq, pl} — highest sequence per slot = current player (subs included)
+    var slots = {};
+    Object.keys(players).forEach(function(k){
+      var pl = players[k];
+      var bo = parseInt(pl.battingOrder);
+      if(!bo || bo <= 0) return;
+      var slot = Math.floor(bo / 100) - 1;
+      var seq = bo % 100;
+      if(slot < 0 || slot >= 9) return;
+      if(!slots[slot] || seq > slots[slot].seq){
+        slots[slot] = { seq: seq, pl: pl };
+      }
+    });
+    for(var s=0;s<9;s++){
+      var entry = slots[s];
+      if(!entry){ out[s] = null; continue; }
+      var pl = entry.pl;
       var b = (pl.stats && pl.stats.batting) || {};
       var sb = (pl.seasonStats && pl.seasonStats.batting) || {};
-      out.push({
-        id: order[i],
+      out[s] = {
+        id: pl.person && pl.person.id,
         name: shortName(pl.person && pl.person.fullName),
         pos: (pl.position && pl.position.abbreviation) || "",
         avg: sb.avg || ".---",
@@ -138,7 +153,7 @@ function buildLineup(feed, side){
         ab: b.atBats!=null?b.atBats:0,
         rbi: b.rbi!=null?b.rbi:0,
         hr: b.homeRuns!=null?b.homeRuns:0
-      });
+      };
     }
   }catch(e){}
   return out;
@@ -314,10 +329,10 @@ var CENTER_X = CW/2;
 
 // diamond geometry — landscape coords, diamond in center column
 // center column: x from PANEL_X_L+PANEL_W+10 to PANEL_X_R-10
-var D_HOME = { x: CENTER_X, y: 1140 };
-var D_2B   = { x: CENTER_X, y: 660 };
-var D_1B   = { x: CENTER_X+280, y: 900 };
-var D_3B   = { x: CENTER_X-280, y: 900 };
+var D_HOME = { x: CENTER_X, y: 1200 };
+var D_2B   = { x: CENTER_X, y: 580 };
+var D_1B   = { x: CENTER_X+360, y: 870 };
+var D_3B   = { x: CENTER_X-360, y: 870 };
 var MOUND  = { x: CENTER_X, y: (D_HOME.y + D_2B.y)/2 };
 
 // ================= RENDER =================
@@ -376,11 +391,13 @@ function render(){
   drawLineupPanel(PANEL_X_R, PANEL_Y, st.home, st.homeLineup, !st.isTop ? st.batterId : null);
   drawPitcherBox(PANEL_X_R, PANEL_Y + lineupH + 10, st.home + " PITCHER", st.homePitcher);
 
+  // ---- pitch zone + log below the fielding team's pitcher box ----
+  // away pitches when st.isTop; home pitches when !st.isTop
+  var zoneX = st.isTop ? PANEL_X_L : PANEL_X_R;
+  drawPitchZone(st, zoneX, PANEL_Y + lineupH + 10 + 200 + 10);
+
   // ---- center: diamond ----
   drawDiamond(st);
-
-  // ---- single pitch zone + log, centered below count band ----
-  drawPitchZone(st);
 
   // ---- recent plays ----
   drawRecentPlays(st);
@@ -425,26 +442,26 @@ function drawButtons(){
 function renderPicker(){
   text("REPLAY PICKER", 60, 120, 64, true);
 
-  var colW = 700, gap = 20;
+  var colW = 780, gap = 14;
   var xA = 40, xB = CW-40-colW;
-  var topY = 220;
-  var btnW = (colW - 4*gap)/5, btnH = 110;
+  var topY = 190;
+  var btnW = (colW - 2*gap)/3, btnH = 148; // 3 cols x 10 rows, ~2x cell area
 
   text("TEAM A", xA+colW/2, topY-20, 40, true, "center");
   text("TEAM B", xB+colW/2, topY-20, 40, true, "center");
 
   function grid(x0, sel, setFn){
     for(var i=0;i<TEAMS.length;i++){
-      var col = i%5, row = Math.floor(i/5);
+      var col = i%3, row = Math.floor(i/3);
       var bx = x0 + col*(btnW+gap);
       var by = topY + row*(btnH+gap);
       var t = TEAMS[i];
       if(sel===t.id){
         fillRect(bx,by,btnW,btnH);
-        text(t.c, bx+btnW/2, by+btnH/2+13, 36, true, "center", "#fff");
+        text(t.c, bx+btnW/2, by+btnH/2+18, 52, true, "center", "#fff");
       } else {
         rect(bx,by,btnW,btnH,3);
-        text(t.c, bx+btnW/2, by+btnH/2+13, 36, true, "center");
+        text(t.c, bx+btnW/2, by+btnH/2+18, 52, true, "center");
       }
       (function(id){ addHit(bx,by,btnW,btnH,function(){ setFn(id); render(); }); })(t.id);
     }
@@ -499,7 +516,7 @@ function openPicker(){
 function exitReplay(){
   mode = "live";
   stopReplayTimer();
-  replayFeed = null; replayPlays = []; replayIdx = 0;
+  replayFeed = null; replayPlays = []; replayIdx = 0; replayPitchIdx = 0;
   render();
   poll();
 }
@@ -534,18 +551,28 @@ function startReplayTimer(){
   stopReplayTimer();
   replayTimer = setInterval(function(){
     if(mode!=="replay" || replayPaused || ballAnimating) return;
-    if(replayIdx < replayPlays.length-1){
-      // ball in flight from mound to home, then show the play result
+    var play = replayPlays[replayIdx];
+    var pitchCount = 0;
+    if(play && play.playEvents){
+      for(var i=0;i<play.playEvents.length;i++) if(play.playEvents[i].isPitch) pitchCount++;
+    }
+    if(replayPitchIdx < pitchCount){
+      // ball in flight from mound to home, then show this pitch
       animateBall(function(){
         if(mode!=="replay") return;
-        replayIdx++;
+        replayPitchIdx++;
         render();
       });
+    } else if(replayIdx < replayPlays.length-1){
+      // all pitches shown -> next play, reset to intro
+      replayIdx++;
+      replayPitchIdx = 0;
+      render();
     } else {
       stopReplayTimer();
       render();
     }
-  }, 3000);
+  }, 2500);
 }
 function toggleReplayPause(){
   replayPaused = !replayPaused;
@@ -602,6 +629,7 @@ function startReplay(feed, dateStr){
   replayFeed = feed;
   replayPlays = plays;
   replayIdx = 0;
+  replayPitchIdx = 0;
   var aw = feed.gameData.teams.away.abbreviation || teamAbbr(feed.gameData.teams.away.name);
   var hm = feed.gameData.teams.home.abbreviation || teamAbbr(feed.gameData.teams.home.name);
   replayLabel = "REPLAY \u00b7 "+aw+" @ "+hm+" \u00b7 "+(dateStr||"");
@@ -633,7 +661,29 @@ function deriveReplayState(){
     prevA = ra; prevH = rh;
   }
 
-  var count = play.count || {balls:0,strikes:0,outs:0};
+  // pitch events of current play, limited by replayPitchIdx (pitch-by-pitch stepping)
+  var allPitches = [];
+  if(play.playEvents){
+    for(var pe=0;pe<play.playEvents.length;pe++) if(play.playEvents[pe].isPitch) allPitches.push(play.playEvents[pe]);
+  }
+  var shownPitches = allPitches.slice(0, Math.max(0, replayPitchIdx));
+  var lastShown = shownPitches.length ? shownPitches[shownPitches.length-1] : null;
+  // count: from last shown pitch's count; intro = 0-0 with outs carried from previous play in same half
+  var count;
+  if(replayPitchIdx >= allPitches.length){
+    count = play.count || {balls:0,strikes:0,outs:0};
+  } else if(lastShown && lastShown.count){
+    count = lastShown.count;
+  } else {
+    var baseOuts = 0;
+    if(replayIdx > 0){
+      var pv = replayPlays[replayIdx-1];
+      if(pv.about && play.about && pv.about.inning===play.about.inning && pv.about.halfInning===play.about.halfInning && pv.count){
+        baseOuts = pv.count.outs || 0;
+      }
+    }
+    count = {balls:0,strikes:0,outs:baseOuts};
+  }
   var mu = play.matchup || {};
   var batSide = "R";
   try{ batSide = mu.batSide.code || "R"; }catch(e){}
@@ -671,27 +721,23 @@ function deriveReplayState(){
     return { desc: p.result.description, aw: p.result.awayScore, hm: p.result.homeScore, inn: p.about.inning, top: p.about.halfInning==="top" };
   });
 
-  // pitches of current play
+  // pitches of current play — only those shown so far (pitch-by-pitch)
   st.pitches = [];
   st.lastPitch = null;
-  if(play.playEvents){
-    for(var k=0;k<play.playEvents.length;k++){
-      var ev = play.playEvents[k];
-      if(ev.isPitch){
-        var d = ev.details || {};
-        st.pitches.push({
-          call: (d.call && d.call.description) || d.description || "",
-          type: (d.type && d.type.description) || ""
-        });
-        if(ev.pitchData && ev.pitchData.coordinates && ev.pitchData.coordinates.pX!=null){
-          st.lastPitch = {
-            px: ev.pitchData.coordinates.pX,
-            pz: ev.pitchData.coordinates.pZ,
-            szTop: ev.pitchData.strikeZoneTop || 3.5,
-            szBot: ev.pitchData.strikeZoneBottom || 1.5
-          };
-        }
-      }
+  for(var k=0;k<shownPitches.length;k++){
+    var ev = shownPitches[k];
+    var d = ev.details || {};
+    st.pitches.push({
+      call: (d.call && d.call.description) || d.description || "",
+      type: (d.type && d.type.description) || ""
+    });
+    if(ev.pitchData && ev.pitchData.coordinates && ev.pitchData.coordinates.pX!=null){
+      st.lastPitch = {
+        px: ev.pitchData.coordinates.pX,
+        pz: ev.pitchData.coordinates.pZ,
+        szTop: ev.pitchData.strikeZoneTop || 3.5,
+        szBot: ev.pitchData.strikeZoneBottom || 1.5
+      };
     }
   }
   return st;
@@ -908,13 +954,11 @@ function drawDiamond(st){
   }
 }
 
-// ---- single pitch zone + pitch log, center column below count band ----
-function drawPitchZone(st){
-  var totW = 600;
-  var x0 = CENTER_X - totW/2;
-  var py = D_HOME.y + 90 + 18 + 56 + 14; // below B/S/O count band
+// ---- single pitch zone + pitch log, in the side panel below the defense pitcher box ----
+function drawPitchZone(st, x0, py){
+  var totW = PANEL_W;
   // Zone grid: left half
-  var zw = 180, zh = 240;
+  var zw = 180, zh = 220;
   var zx = x0 + (totW/2 - zw)/2;
   invBand(zx, py, zw, 34, "ZONE", 24);
   rect(zx, py+34, zw, zh, 3);
@@ -954,21 +998,20 @@ function drawPitchZone(st){
 // ---- recent plays ----
 function drawRecentPlays(st){
   var w = 1060, x = CENTER_X - w/2;
-  var y = D_HOME.y + 90 + 18 + 56 + 14 + 240 + 34 + 14; // below pitch zone block
+  var y = D_HOME.y + 90 + 18 + 56 + 20; // below B/S/O count band
   var hdrH = 50, rowH = 44;
-  var rows = Math.min(5, st.recent.length);
-  var h = hdrH + Math.max(1,rows)*rowH + 12;
-  if(y + h > CH - 110) h = CH - 110 - y;
+  var rows = 5; // always render 5 rows; "--" placeholder when fewer plays
+  var h = hdrH + rows*rowH + 12;
+  if(y + h > CH - 116) y = CH - 116 - h;
   rect(x, y, w, h, 3);
   invBand(x, y, w, hdrH, "RECENT PLAYS", 32);
-  if(!rows){
-    text("No plays yet.", x+20, y+hdrH+34, 26);
-    return;
-  }
   for(var i=0;i<rows;i++){
     var ry = y+hdrH+30+i*rowH;
-    if(ry > y+h-10) break;
     var p = st.recent[i];
+    if(!p){
+      text("--", x+90, ry, 28);
+      continue;
+    }
     var tag = (p.top?"T":"B")+p.inn;
     var score = (p.aw!=null&&p.hm!=null) ? (p.aw+"-"+p.hm) : "";
     var desc = p.desc.length>54 ? p.desc.substring(0,52)+".." : p.desc;

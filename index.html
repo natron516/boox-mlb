@@ -833,16 +833,16 @@ function drawDiamond(st){
 
   // runners on base + name labels
   if(st.bases[1]){
-    stickFigure(D_1B.x+80, D_1B.y+10, 80);
-    text(lastName(st.bases[1]), D_1B.x+80, D_1B.y+52, 26, true, "center");
+    stickFigure(D_1B.x, D_1B.y, 80);
+    text(lastName(st.bases[1]), D_1B.x, D_1B.y-80-14, 26, true, "center");
   }
   if(st.bases[2]){
-    stickFigure(D_2B.x, D_2B.y-40, 80);
-    text(lastName(st.bases[2]), D_2B.x, D_2B.y+3+40, 26, true, "center");
+    stickFigure(D_2B.x, D_2B.y, 80);
+    text(lastName(st.bases[2]), D_2B.x, D_2B.y-80-14, 26, true, "center");
   }
   if(st.bases[3]){
-    stickFigure(D_3B.x-80, D_3B.y+10, 80);
-    text(lastName(st.bases[3]), D_3B.x-80, D_3B.y+52, 26, true, "center");
+    stickFigure(D_3B.x, D_3B.y, 80);
+    text(lastName(st.bases[3]), D_3B.x, D_3B.y-80-14, 26, true, "center");
   }
 
   // batter at plate

@@ -30,7 +30,7 @@ function font(px, bold){ ctx.font = (bold?"bold ":"") + px + "px " + MONO; }
 // ================= DATA / POLLING (from original mlb.html) =================
 var FAV = "SEA";
 var SCHED_FIELDS = "dates,date,games,gamePk,gameDate,status,abstractGameState,detailedState,statusCode,codedGameState,teams,away,home,team,id,name,score,linescore,currentInning,inningState,inningHalf,isTopInning,runs,hits,errors,outs";
-var FEED_FIELDS = "gameData,teams,away,home,id,name,abbreviation,status,abstractGameState,detailedState,statusCode,liveData,linescore,currentInning,currentInningOrdinal,inningState,inningHalf,isTopInning,runs,hits,errors,innings,num,offense,batter,onDeck,inHole,fullName,first,second,third,defense,pitcher,count,balls,strikes,outs,plays,currentPlay,allPlays,playEvents,isPitch,details,description,call,pitchData,coordinates,pX,pZ,strikeZoneTop,strikeZoneBottom,type,result,event,awayScore,homeScore,about,inning,halfInning,isComplete,matchup,batSide,code,pitchHand,boxscore,battingOrder,players,person,position,abbreviation,stats,batting,pitching,atBats,hits,rbi,homeRuns,inningsPitched,earnedRuns,wins,losses,strikeOuts,baseOnBalls,era,whip,seasonStats,avg,decisions,winner,loser,save";
+var FEED_FIELDS = "gameData,teams,away,home,id,name,abbreviation,status,abstractGameState,detailedState,statusCode,liveData,linescore,currentInning,currentInningOrdinal,inningState,inningHalf,isTopInning,runs,hits,errors,innings,num,offense,batter,onDeck,inHole,fullName,first,second,third,defense,pitcher,count,balls,strikes,outs,plays,currentPlay,allPlays,playEvents,isPitch,details,description,call,pitchData,coordinates,pX,pZ,strikeZoneTop,strikeZoneBottom,type,result,event,awayScore,homeScore,about,inning,halfInning,isComplete,matchup,batSide,code,pitchHand,boxscore,battingOrder,players,person,position,abbreviation,stats,batting,pitching,atBats,hits,rbi,homeRuns,inningsPitched,earnedRuns,wins,losses,strikeOuts,baseOnBalls,era,whip,seasonStats,avg,decisions,winner,loser,save,postOnFirst,postOnSecond,postOnThird,officialDate";
 
 var gamePk = null;
 var pollTimer = null;
@@ -39,6 +39,27 @@ var clockRunning = false;
 var lastFeed = null;
 var lastGames = [];
 var errNote = "";
+
+// ================= REPLAY SYSTEM STATE =================
+var mode = "live"; // live | picker | searching | replay
+var TEAMS = [
+  {id:108,c:"LAA"},{id:109,c:"ARI"},{id:110,c:"BAL"},{id:111,c:"BOS"},{id:112,c:"CHC"},
+  {id:113,c:"CIN"},{id:114,c:"CLE"},{id:115,c:"COL"},{id:116,c:"DET"},{id:117,c:"HOU"},
+  {id:118,c:"KC"},{id:119,c:"LAD"},{id:120,c:"WSH"},{id:121,c:"NYM"},{id:133,c:"ATH"},
+  {id:134,c:"PIT"},{id:135,c:"SD"},{id:136,c:"SEA"},{id:137,c:"SF"},{id:138,c:"STL"},
+  {id:139,c:"TB"},{id:140,c:"TEX"},{id:141,c:"TOR"},{id:142,c:"MIN"},{id:143,c:"PHI"},
+  {id:144,c:"ATL"},{id:145,c:"CWS"},{id:146,c:"MIA"},{id:147,c:"NYY"},{id:158,c:"MIL"}
+];
+var pickA = null, pickB = null;
+var pickYear = new Date().getFullYear() - 1;
+var YEAR_MIN = 1990, YEAR_MAX = new Date().getFullYear();
+var searchMsg = "";
+var replayFeed = null;
+var replayPlays = [];
+var replayIdx = 0;
+var replayLabel = "";
+var hitRegions = []; // {x,y,w,h,fn}
+function addHit(x,y,w,h,fn){ hitRegions.push({x:x,y:y,w:w,h:h,fn:fn}); }
 
 function pad2(n){ return (n<10?"0":"")+n; }
 function dstr(d){ return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate()); }
@@ -301,6 +322,7 @@ var MOUND  = { x: CENTER_X, y: (1620+980)/2 };
 
 // ================= RENDER =================
 function render(){
+  hitRegions = [];
   ctx.fillStyle = "#fff";
   ctx.fillRect(0,0,CW,CH);
 
@@ -308,12 +330,18 @@ function render(){
   rect(M1, M1, CW-2*M1, CH-2*M1, 4);
   rect(M2+6, M2+6, CW-2*(M2+6), CH-2*(M2+6), 3);
 
-  var st = lastFeed ? deriveState(lastFeed) : null;
+  if(mode==="picker"){ renderPicker(); return; }
+  if(mode==="searching"){ renderSearching(); return; }
+
+  var replay = (mode==="replay");
+  var st = replay ? deriveReplayState() : (lastFeed ? deriveState(lastFeed) : null);
 
   // ---- top bar ----
-  text("MLB GAMEDAY", 60, 108, 64, true);
+  text(replay ? replayLabel : "MLB GAMEDAY", 60, 108, replay?44:64, true);
   var statusTxt = "WAITING";
-  if(st){
+  if(replay){
+    statusTxt = "PLAY "+(replayIdx+1)+" / "+replayPlays.length;
+  } else if(st){
     statusTxt = st.state==="Live" ? "LIVE" : (st.state==="Final" ? "FINAL" : (st.detailed||st.state).toUpperCase());
   }
   text(statusTxt, CW-60, 108, 56, true, "right");
@@ -360,7 +388,7 @@ function render(){
 
 // ---- all games today, thin bottom strip ----
 function drawScoreboard(){
-  if(!lastGames.length) return;
+  if(mode!=="live" || !lastGames.length) return;
   var y = CH - 74;
   var items = lastGames.map(function(g){
     var a = teamAbbr(g.teams.away.team.name), h = teamAbbr(g.teams.home.team.name);
@@ -378,9 +406,269 @@ function drawScoreboard(){
 }
 
 function drawButtons(){
+  if(mode==="replay"){
+    invBand(44, CH-110, 280, 70, "< PREV", 34);
+    addHit(44, CH-110, 280, 70, replayPrev);
+    invBand(CW-44-280, CH-110, 280, 70, "> NEXT", 34);
+    addHit(CW-44-280, CH-110, 280, 70, replayNext);
+    invBand(CENTER_X-110, CH-110, 220, 70, "X EXIT", 34);
+    addHit(CENTER_X-110, CH-110, 220, 70, exitReplay);
+    return;
+  }
   invBand(44, CH-110, 200, 70, "EXIT", 34);
   invBand(CW-44-280, CH-110, 280, 70, "> REPLAY", 34);
+  addHit(CW-44-280, CH-110, 280, 70, openPicker);
 }
+
+// ================= REPLAY PICKER =================
+function renderPicker(){
+  text("REPLAY PICKER", 60, 120, 64, true);
+
+  var colW = 700, gap = 20;
+  var xA = 40, xB = CW-40-colW;
+  var topY = 220;
+  var btnW = (colW - 4*gap)/5, btnH = 110;
+
+  text("TEAM A", xA+colW/2, topY-20, 40, true, "center");
+  text("TEAM B", xB+colW/2, topY-20, 40, true, "center");
+
+  function grid(x0, sel, setFn){
+    for(var i=0;i<TEAMS.length;i++){
+      var col = i%5, row = Math.floor(i/5);
+      var bx = x0 + col*(btnW+gap);
+      var by = topY + row*(btnH+gap);
+      var t = TEAMS[i];
+      if(sel===t.id){
+        fillRect(bx,by,btnW,btnH);
+        text(t.c, bx+btnW/2, by+btnH/2+13, 36, true, "center", "#fff");
+      } else {
+        rect(bx,by,btnW,btnH,3);
+        text(t.c, bx+btnW/2, by+btnH/2+13, 36, true, "center");
+      }
+      (function(id){ addHit(bx,by,btnW,btnH,function(){ setFn(id); render(); }); })(t.id);
+    }
+  }
+  grid(xA, pickA, function(id){ pickA=id; });
+  grid(xB, pickB, function(id){ pickB=id; });
+
+  // season selector in the center
+  var cy = topY + 300;
+  text("SEASON", CENTER_X, cy-90, 40, true, "center");
+  text(String(pickYear), CENTER_X, cy+16, 72, true, "center");
+  var aw = 70;
+  rect(CENTER_X-165, cy-40, aw, 80, 4);
+  text("<", CENTER_X-165+aw/2, cy+16, 48, true, "center");
+  addHit(CENTER_X-165-15, cy-60, aw+30, 120, function(){ if(pickYear>YEAR_MIN){ pickYear--; render(); } });
+  rect(CENTER_X+95, cy-40, aw, 80, 4);
+  text(">", CENTER_X+95+aw/2, cy+16, 48, true, "center");
+  addHit(CENTER_X+95-15, cy-60, aw+30, 120, function(){ if(pickYear<YEAR_MAX){ pickYear++; render(); } });
+
+  if(searchMsg) text(searchMsg, CENTER_X, cy+140, 34, true, "center");
+
+  // FIND GAME + CANCEL
+  var fw = 560, fh = 110;
+  var fy = CH - 380;
+  var ready = pickA!=null && pickB!=null;
+  if(ready){
+    invBand(CENTER_X-fw/2, fy, fw, fh, "FIND GAME", 48);
+    addHit(CENTER_X-fw/2, fy, fw, fh, findGame);
+  } else {
+    rect(CENTER_X-fw/2, fy, fw, fh, 3);
+    text("FIND GAME", CENTER_X, fy+fh/2+17, 48, true, "center", "#999");
+  }
+  var cy2 = fy + fh + 40;
+  rect(CENTER_X-200, cy2, 400, 90, 4);
+  text("CANCEL", CENTER_X, cy2+62, 40, true, "center");
+  addHit(CENTER_X-200, cy2, 400, 90, exitReplay);
+}
+
+function renderSearching(){
+  text("REPLAY PICKER", 60, 120, 64, true);
+  text("SEARCHING...", CENTER_X, CH/2, 72, true, "center");
+}
+
+function openPicker(){
+  mode = "picker";
+  searchMsg = "";
+  clockRunning = false;
+  if(pollTimer){ clearTimeout(pollTimer); pollTimer = null; }
+  render();
+}
+
+function exitReplay(){
+  mode = "live";
+  replayFeed = null; replayPlays = []; replayIdx = 0;
+  render();
+  poll();
+}
+
+function replayNext(){ if(replayIdx < replayPlays.length-1){ replayIdx++; render(); } }
+function replayPrev(){ if(replayIdx > 0){ replayIdx--; render(); } }
+
+// ================= FIND GAME =================
+function findGame(){
+  mode = "searching";
+  render();
+  var url = "https://statsapi.mlb.com/api/v1/schedule?sportId=1&teamId="+pickA+"&season="+pickYear+"&gameType=R&fields=dates,date,games,gamePk,teams,away,home,team,id,status,codedGameState";
+  fetch(url).then(function(r){ return r.json(); }).then(function(sched){
+    var matches = [];
+    (sched.dates||[]).forEach(function(d){
+      (d.games||[]).forEach(function(g){
+        try{
+          var a = g.teams.away.team.id, h = g.teams.home.team.id;
+          var both = (a===pickA && h===pickB) || (a===pickB && h===pickA) ||
+                     (pickA===pickB && (a===pickA || h===pickA));
+          if(both && g.status && g.status.codedGameState==="F"){
+            g._date = d.date;
+            matches.push(g);
+          }
+        }catch(e){}
+      });
+    });
+    if(!matches.length){
+      mode = "picker";
+      searchMsg = "NO GAMES FOUND - TRY ANOTHER YEAR";
+      render();
+      return;
+    }
+    var g = matches[Math.floor(Math.random()*matches.length)];
+    return fetch(feedUrl(g.gamePk)).then(function(r){ return r.json(); }).then(function(feed){
+      startReplay(feed, g._date);
+    });
+  }).catch(function(e){
+    mode = "picker";
+    searchMsg = "FETCH ERROR - TRY AGAIN";
+    render();
+  });
+}
+
+function startReplay(feed, dateStr){
+  var all = (feed.liveData && feed.liveData.plays && feed.liveData.plays.allPlays) || [];
+  var plays = all.filter(function(p){ return p.about && p.about.isComplete; });
+  if(!plays.length){
+    mode = "picker";
+    searchMsg = "NO PLAY DATA FOR THAT GAME";
+    render();
+    return;
+  }
+  replayFeed = feed;
+  replayPlays = plays;
+  replayIdx = 0;
+  var aw = feed.gameData.teams.away.abbreviation || teamAbbr(feed.gameData.teams.away.name);
+  var hm = feed.gameData.teams.home.abbreviation || teamAbbr(feed.gameData.teams.home.name);
+  replayLabel = "REPLAY \u00b7 "+aw+" @ "+hm+" \u00b7 "+(dateStr||"");
+  mode = "replay";
+  render();
+}
+
+// ================= REPLAY STATE BUILDER =================
+function deriveReplayState(){
+  var feed = replayFeed;
+  var play = replayPlays[replayIdx];
+  var aw = feed.gameData.teams.away.abbreviation || teamAbbr(feed.gameData.teams.away.name);
+  var hm = feed.gameData.teams.home.abbreviation || teamAbbr(feed.gameData.teams.home.name);
+
+  // build innings + running score from plays 0..idx
+  var innings = [];
+  var prevA = 0, prevH = 0;
+  for(var i=0;i<=replayIdx;i++){
+    var p = replayPlays[i];
+    var ra = (p.result && p.result.awayScore!=null) ? p.result.awayScore : prevA;
+    var rh = (p.result && p.result.homeScore!=null) ? p.result.homeScore : prevH;
+    var inn = (p.about && p.about.inning) || 1;
+    while(innings.length < inn) innings.push({away:{runs:0},home:{runs:0}});
+    var da = ra - prevA, dh = rh - prevH;
+    if(da>0) innings[inn-1].away.runs += da;
+    if(dh>0) innings[inn-1].home.runs += dh;
+    prevA = ra; prevH = rh;
+  }
+
+  var count = play.count || {balls:0,strikes:0,outs:0};
+  var mu = play.matchup || {};
+  var batSide = "R";
+  try{ batSide = mu.batSide.code || "R"; }catch(e){}
+
+  var st = {
+    away: aw, home: hm,
+    awayScore: prevA, homeScore: prevH,
+    awayHits: 0, homeHits: 0, awayErr: 0, homeErr: 0,
+    inning: (play.about && play.about.inning) || 1,
+    isTop: !!(play.about && play.about.halfInning==="top"),
+    innings: innings,
+    b: count.balls||0, s: count.strikes||0, o: count.outs||0,
+    bases: {
+      1: mu.postOnFirst ? mu.postOnFirst.fullName : null,
+      2: mu.postOnSecond ? mu.postOnSecond.fullName : null,
+      3: mu.postOnThird ? mu.postOnThird.fullName : null
+    },
+    batter: mu.batter ? mu.batter.fullName : null,
+    batterId: mu.batter ? mu.batter.id : null,
+    pitcher: mu.pitcher ? mu.pitcher.fullName : null,
+    pitcherId: mu.pitcher ? mu.pitcher.id : null,
+    batSide: batSide,
+    state: "Live",
+    detailed: "REPLAY",
+    awayLineup: buildLineup(feed,"away"),
+    homeLineup: buildLineup(feed,"home")
+  };
+  var defP = st.pitcherId ? pitcherStats(feed, st.pitcherId) : null;
+  st.homePitcher = st.isTop ? defP : null;
+  st.awayPitcher = st.isTop ? null : defP;
+
+  // recent plays: completed plays up to and including current
+  var done = replayPlays.slice(0, replayIdx+1).filter(function(p){ return p.result && p.result.description; });
+  st.recent = done.slice(-8).reverse().map(function(p){
+    return { desc: p.result.description, aw: p.result.awayScore, hm: p.result.homeScore, inn: p.about.inning, top: p.about.halfInning==="top" };
+  });
+
+  // pitches of current play
+  st.pitches = [];
+  st.lastPitch = null;
+  if(play.playEvents){
+    for(var k=0;k<play.playEvents.length;k++){
+      var ev = play.playEvents[k];
+      if(ev.isPitch){
+        var d = ev.details || {};
+        st.pitches.push({
+          call: (d.call && d.call.description) || d.description || "",
+          type: (d.type && d.type.description) || ""
+        });
+        if(ev.pitchData && ev.pitchData.coordinates && ev.pitchData.coordinates.pX!=null){
+          st.lastPitch = {
+            px: ev.pitchData.coordinates.pX,
+            pz: ev.pitchData.coordinates.pZ,
+            szTop: ev.pitchData.strikeZoneTop || 3.5,
+            szBot: ev.pitchData.strikeZoneBottom || 1.5
+          };
+        }
+      }
+    }
+  }
+  return st;
+}
+
+// ================= TAP HANDLING =================
+function handleTap(clientX, clientY){
+  var r = canvas.getBoundingClientRect();
+  var x = (clientX - r.left) * (CW / r.width);
+  var y = (clientY - r.top) * (CH / r.height);
+  for(var i=hitRegions.length-1;i>=0;i--){
+    var h = hitRegions[i];
+    if(x>=h.x && x<=h.x+h.w && y>=h.y && y<=h.y+h.h){ h.fn(); return; }
+  }
+}
+var touched = false;
+canvas.addEventListener("touchend", function(e){
+  touched = true;
+  if(e.changedTouches && e.changedTouches.length){
+    e.preventDefault();
+    handleTap(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+  }
+}, {passive:false});
+canvas.addEventListener("click", function(e){
+  if(touched){ touched = false; return; }
+  handleTap(e.clientX, e.clientY);
+});
 
 // ---- linescore grid ----
 function drawLinescoreGrid(st, y){
@@ -649,6 +937,7 @@ function schedulePoll(ms){
   pollTimer = setTimeout(poll, ms);
 }
 function poll(){
+  if(mode!=="live"){ return; }
   fetch(schedUrl()).then(function(r){ return r.json(); }).then(function(sched){
     var games = [];
     (sched.dates||[]).forEach(function(d){ games = games.concat(d.games||[]); });
@@ -671,7 +960,7 @@ function poll(){
       }
       if(st.state!=="Live") clockRunning = false;
       prevCount = c;
-      render();
+      if(mode==="live") render();
       var ms = state==="Live" ? 30000 : (state==="Preview" ? 60000 : 300000);
       schedulePoll(ms);
     });

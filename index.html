@@ -524,9 +524,24 @@ function exitReplay(){
 // ---- pitch ball animation ----
 var ballAnim = null; // {t: 0..1}
 var ballAnimating = false;
-function animateBall(done){
-  // Skip animation on eink — just call done immediately
-  if(done) done();
+function animateBall(){
+  // Fire-and-forget: ball flies visually, does NOT block pitch advance
+  if(ballAnimating) return;
+  ballAnimating = true;
+  var frames = 6, f = 0;
+  function step(){
+    f++;
+    ballAnim = { t: f/frames };
+    render();
+    if(f < frames){
+      setTimeout(step, 80);
+    } else {
+      ballAnim = null;
+      ballAnimating = false;
+      render();
+    }
+  }
+  setTimeout(step, 80);
 }
 
 // ---- replay auto-advance ----
@@ -542,12 +557,10 @@ function startReplayTimer(){
       for(var i=0;i<play.playEvents.length;i++) if(play.playEvents[i].isPitch) pitchCount++;
     }
     if(replayPitchIdx < pitchCount){
-      // ball in flight from mound to home, then show this pitch
-      animateBall(function(){
-        if(mode!=="replay") return;
-        replayPitchIdx++;
-        render();
-      });
+      // fire animation (non-blocking), advance pitch immediately
+      animateBall();
+      replayPitchIdx++;
+      render();
     } else if(replayIdx < replayPlays.length-1){
       // all pitches shown -> next play, reset to intro
       replayIdx++;

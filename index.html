@@ -85,6 +85,15 @@ var ALL_TEAMS = [
 function teamsForYear(year){
   return ALL_TEAMS.filter(function(t){ return year >= t.from && year <= t.to; });
 }
+var RETRO_CODES = {
+  108:"LAA",109:"ARI",110:"BAL",111:"BOS",112:"CHN",113:"CIN",
+  114:"CLE",115:"COL",116:"DET",117:"HOU",118:"KCA",119:"LAN",
+  120:"WAS",121:"NYN",133:"OAK",134:"PIT",135:"SDN",136:"SEA",
+  137:"SFN",138:"SLN",139:"TBA",140:"TEX",141:"TOR",142:"MIN",
+  143:"PHI",144:"ATL",145:"CHA",146:"MIA",147:"NYA",158:"MIL"
+};
+var RS_BASE = "https://natron516.github.io/boox-mlb/rs/";
+var retroGame = null; // loaded Retrosheet game object
 var pickA = null, pickB = null;
 var pickYear = new Date().getFullYear() - 1;
 var YEAR_MIN = 1903, YEAR_MAX = new Date().getFullYear();
@@ -611,7 +620,7 @@ function openPicker(){
 function exitReplay(){
   mode = "live";
   stopReplayTimer();
-  replayFeed = null; replayPlays = []; replayIdx = 0; replayPitchIdx = 0;
+  replayFeed = null; retroGame = null; replayPlays = []; replayIdx = 0; replayPitchIdx = 0;
   render();
   poll();
 }
@@ -688,6 +697,29 @@ function startReplayTimer(){
   replayTimer = setInterval(function(){
     if(mode!=="replay" || replayPaused || ballAnimating) return;
     var play = replayPlays[replayIdx];
+    if(retroGame && !replayFeed){
+      // Retrosheet replay: pitches from pc string, no playEvents
+      var rpc = retroPitchCount(play);
+      if(replayPitchIdx < rpc){
+        animateBall(retroPitchType());
+        replayPitchIdx++;
+        render();
+      } else if(replayIdx < replayPlays.length-1){
+        var lastChar = (play.pc||"").charAt((play.pc||"").length-1);
+        if(lastChar==="X"){
+          var evMap = {"Single":"single","Double":"double","Ground Rule Double":"double","Triple":"triple","Home Run":"home run","Out":"flyout","Error":"groundout","Fielder's Choice":"fielders choice","Force Out":"groundout","Double Play":"groundout"};
+          var tgt = fallbackHitTarget(evMap[play.desc]||"");
+          animateHitTo(tgt.x, tgt.y);
+        }
+        replayIdx++;
+        replayPitchIdx = 0;
+        render();
+      } else {
+        stopReplayTimer();
+        render();
+      }
+      return;
+    }
     var pitchCount = 0;
     if(play && play.playEvents){
       for(var i=0;i<play.playEvents.length;i++) if(play.playEvents[i].isPitch) pitchCount++;
@@ -746,8 +778,42 @@ function toggleReplayPause(){
   render();
 }
 
+// ================= RETROSHEET (pre-1974) =================
+function retroPitchCount(play){
+  return (play.pc||"").replace(/[^BCSXFTIbcsxfti]/g,"").length;
+}
+var RETRO_POS = {1:"P",2:"C",3:"1B",4:"2B",5:"3B",6:"SS",7:"LF",8:"CF",9:"RF",10:"DH"};
+function retroPitchType(){
+  var r = Math.random();
+  if(pickYear >= 1950){ return r < 0.6 ? "FF" : (r < 0.8 ? "CU" : "CH"); }
+  return r < 0.7 ? "FF" : "CU";
+}
+function findRetroGame(){
+  mode = "searching"; render();
+  var rc_a = RETRO_CODES[pickA], rc_b = RETRO_CODES[pickB];
+  if(!rc_a || !rc_b){ mode="picker"; searchMsg="TEAM NOT IN RETROSHEET"; render(); return; }
+  fetch(RS_BASE + "idx.json").then(function(r){ return r.json(); }).then(function(idx){
+    var games = (idx[String(pickYear)]||[]).filter(function(g){
+      return (g.home===rc_a&&g.vis===rc_b)||(g.home===rc_b&&g.vis===rc_a)||
+             (pickA===pickB&&(g.home===rc_a||g.vis===rc_a));
+    });
+    if(!games.length){ mode="picker"; searchMsg="NO RETROSHEET GAME FOUND"; render(); return; }
+    var pick = games[Math.floor(Math.random()*games.length)];
+    fetch(RS_BASE + pickYear + ".json").then(function(r){ return r.json(); }).then(function(yr){
+      var g = yr.filter(function(x){ return x.id===pick.id; })[0];
+      if(!g){ mode="picker"; searchMsg="GAME DATA MISSING"; render(); return; }
+      retroGame = g;
+      replayPlays = g.plays; replayIdx = 0; replayPitchIdx = 0;
+      replayFeed = null; // signal: use retroGame not StatsAPI feed
+      replayLabel = "REPLAY \u00b7 " + g.vis + " @ " + g.home + " \u00b7 " + g.date;
+      mode = "replay"; replayPaused = false; startReplayTimer(); render();
+    }).catch(function(){ mode="picker"; searchMsg="RETROSHEET FETCH FAILED"; render(); });
+  }).catch(function(){ mode="picker"; searchMsg="RETROSHEET FETCH FAILED"; render(); });
+}
+
 // ================= FIND GAME =================
 function findGame(){
+  if(pickYear < 1974){ findRetroGame(); return; }
   mode = "searching";
   render();
   var url = "https://statsapi.mlb.com/api/v1/schedule?sportId=1&teamId="+pickA+"&season="+pickYear+"&gameType=R&fields=dates,date,games,gamePk,teams,away,home,team,id,status,codedGameState";
@@ -806,7 +872,86 @@ function startReplay(feed, dateStr){
 }
 
 // ================= REPLAY STATE BUILDER =================
+function retroLineup(arr){
+  var out = new Array(9).fill(null);
+  (arr||[]).forEach(function(p){
+    if(p.slot >= 1 && p.slot <= 9){
+      out[p.slot-1] = {
+        id: p.id,
+        name: shortName(p.name),
+        pos: RETRO_POS[p.pos] || String(p.pos),
+        avg: ".---", h: 0, ab: 0, rbi: 0, hr: 0
+      };
+    }
+  });
+  return out;
+}
+var RETRO_CALLS = {B:"Ball",C:"Called Strike",S:"Swinging Strike",F:"Foul",X:"In Play",T:"Foul Tip",I:"Ball (Int)"};
+function deriveRetroReplayState(){
+  var g = retroGame;
+  var play = replayPlays[replayIdx];
+  // running score + innings from plays 0..replayIdx
+  var innings = [];
+  var vScore = 0, hScore = 0;
+  for(var i=0;i<=replayIdx;i++){
+    var p = replayPlays[i];
+    while(innings.length < p.i) innings.push({away:{runs:0},home:{runs:0}});
+    var r = p.r || 0;
+    if(r){
+      if(p.t===0){ vScore += r; innings[p.i-1].away.runs += r; }
+      else { hScore += r; innings[p.i-1].home.runs += r; }
+    }
+  }
+  // count from shown pitch chars
+  var pcStr = (play.pc||"");
+  var shown = pcStr.slice(0, Math.max(0, replayPitchIdx));
+  var balls = 0, strikes = 0;
+  var pitches = [];
+  for(var k=0;k<shown.length;k++){
+    var c = shown[k];
+    pitches.push({ call: RETRO_CALLS[c]||"Pitch", type: "" });
+    if(c==="B"||c==="I") balls++;
+    else if(c==="C"||c==="S"){ if(strikes<3) strikes++; }
+    else if(c==="F"||c==="T"){ if(strikes<2) strikes++; }
+  }
+  if(balls>3) balls=3;
+  var st = {
+    away: g.vis, home: g.home,
+    awayScore: vScore, homeScore: hScore,
+    awayHits: 0, homeHits: 0, awayErr: 0, homeErr: 0,
+    inning: play.i,
+    isTop: play.t===0,
+    innings: innings,
+    b: balls, s: strikes, o: 0,
+    bases: {1:null,2:null,3:null},
+    batter: play.bat,
+    batterId: null,
+    pitcher: play.pit,
+    pitcherId: null,
+    batSide: "R",
+    state: "Live",
+    detailed: "RETROSHEET",
+    awayLineup: retroLineup(g.vp),
+    homeLineup: retroLineup(g.hp),
+    homePitcher: null,
+    awayPitcher: null
+  };
+  // recent: last 5 completed plays before replayIdx (plus none of current)
+  var vs2 = 0, hs2 = 0;
+  var recent = [];
+  for(var j=0;j<replayIdx;j++){
+    var pp = replayPlays[j];
+    var rr = pp.r || 0;
+    if(pp.t===0) vs2 += rr; else hs2 += rr;
+    recent.push({ desc: pp.bat + ": " + pp.desc, aw: vs2, hm: hs2, inn: pp.i, top: pp.t===0 });
+  }
+  st.recent = recent.slice(-5).reverse();
+  st.pitches = pitches;
+  st.lastPitch = null; // no zone data for old games
+  return st;
+}
 function deriveReplayState(){
+  if(retroGame && !replayFeed) return deriveRetroReplayState();
   var feed = replayFeed;
   var play = replayPlays[replayIdx];
   var aw = feed.gameData.teams.away.abbreviation || teamAbbr(feed.gameData.teams.away.name);

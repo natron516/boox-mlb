@@ -368,7 +368,7 @@ function render(){
   drawLinescoreGrid(st, 250);
 
   // ---- left panel: away lineup + pitcher ----
-  var lineupH = 56 + 40 + 9*86 + 14;
+  var lineupH = 56 + 40 + 9*80 + 14;
   drawLineupPanel(PANEL_X_L, PANEL_Y, st.away, st.awayLineup, st.isTop ? st.batterId : null);
   drawPitcherBox(PANEL_X_L, PANEL_Y + lineupH + 16, st.away + " PITCHER", st.awayPitcher);
 
@@ -728,7 +728,7 @@ function drawLinescoreGrid(st, y){
 function drawLineupPanel(x, y, abbr, lineup, activeBatterId){
   var w = PANEL_W;
   var hdrH = 56;
-  var rowH = 86;
+  var rowH = 80;
   var h = hdrH + 40 + 9*rowH + 14;
   rect(x, y, w, h, 3);
   invBand(x, y, w, hdrH, abbr + " LINEUP", 36);
@@ -854,11 +854,12 @@ function drawDiamond(st){
 // ---- strike zone + pitch log (batting side) ----
 function drawPitchPanel(st){
   var side = st.isTop ? "L" : "R";
-  var lineupH2 = 56 + 40 + 9*86 + 14;
+  var lineupH = 56 + 40 + 9*80 + 14;  // 884
   var pitcherBoxH = 200;
   var panelX = side==="L" ? PANEL_X_L : PANEL_X_R;
-  var py = PANEL_Y + lineupH2 + 16 + pitcherBoxH + 20;
-  var px = panelX + 20;
+  // Position: right below pitcher box, inside the side panel x-range
+  var py = PANEL_Y + lineupH + 16 + pitcherBoxH + 24;
+  var px = panelX;
 
   // strike zone: 3x4 grid
   var zw = 180, zh = 240;

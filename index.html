@@ -46,17 +46,55 @@ var errNote = "";
 
 // ================= REPLAY SYSTEM STATE =================
 var mode = "live"; // live | picker | searching | replay
-var TEAMS = [
-  {id:108,c:"LAA"},{id:109,c:"ARI"},{id:110,c:"BAL"},{id:111,c:"BOS"},{id:112,c:"CHC"},
-  {id:113,c:"CIN"},{id:114,c:"CLE"},{id:115,c:"COL"},{id:116,c:"DET"},{id:117,c:"HOU"},
-  {id:118,c:"KC"},{id:119,c:"LAD"},{id:120,c:"WSH"},{id:121,c:"NYM"},{id:133,c:"ATH"},
-  {id:134,c:"PIT"},{id:135,c:"SD"},{id:136,c:"SEA"},{id:137,c:"SF"},{id:138,c:"STL"},
-  {id:139,c:"TB"},{id:140,c:"TEX"},{id:141,c:"TOR"},{id:142,c:"MIN"},{id:143,c:"PHI"},
-  {id:144,c:"ATL"},{id:145,c:"CWS"},{id:146,c:"MIA"},{id:147,c:"NYY"},{id:158,c:"MIL"}
+// Each entry: {id, c, from, to}  (to=9999 means still active)
+var ALL_TEAMS = [
+  {id:108, c:"LAA",  from:1961, to:9999},
+  {id:109, c:"ARI",  from:1998, to:9999},
+  {id:110, c:"BAL",  from:1901, to:9999}, // was Milwaukee/St.Louis Browns
+  {id:111, c:"BOS",  from:1901, to:9999},
+  {id:112, c:"CHC",  from:1903, to:9999},
+  {id:113, c:"CIN",  from:1903, to:9999},
+  {id:114, c:"CLE",  from:1901, to:9999},
+  {id:115, c:"COL",  from:1993, to:9999},
+  {id:116, c:"DET",  from:1901, to:9999},
+  {id:117, c:"HOU",  from:1962, to:9999},
+  {id:118, c:"KC",   from:1969, to:9999},
+  {id:119, c:"LAD",  from:1903, to:9999}, // Brooklyn Dodgers
+  {id:120, c:"WSH",  from:2005, to:9999},
+  {id:121, c:"NYM",  from:1962, to:9999},
+  {id:133, c:"ATH",  from:1901, to:9999}, // Philadelphia/KC/Oakland/now Sacramento
+  {id:134, c:"PIT",  from:1903, to:9999},
+  {id:135, c:"SD",   from:1969, to:9999},
+  {id:136, c:"SEA",  from:1977, to:9999},
+  {id:137, c:"SF",   from:1903, to:9999}, // NY Giants -> SF
+  {id:138, c:"STL",  from:1903, to:9999},
+  {id:139, c:"TB",   from:1998, to:9999},
+  {id:140, c:"TEX",  from:1972, to:9999},
+  {id:141, c:"TOR",  from:1977, to:9999},
+  {id:142, c:"MIN",  from:1901, to:9999}, // was Washington Senators
+  {id:143, c:"PHI",  from:1901, to:9999},
+  {id:144, c:"ATL",  from:1903, to:9999}, // Boston/Milwaukee Braves
+  {id:145, c:"CWS",  from:1901, to:9999},
+  {id:146, c:"MIA",  from:1993, to:9999},
+  {id:147, c:"NYY",  from:1903, to:9999}, // was Highlanders
+  {id:158, c:"MIL",  from:1969, to:9999}
 ];
+
+function teamsForYear(year){
+  return ALL_TEAMS.filter(function(t){ return year >= t.from && year <= t.to; });
+}
 var pickA = null, pickB = null;
 var pickYear = new Date().getFullYear() - 1;
 var YEAR_MIN = 1903, YEAR_MAX = new Date().getFullYear();
+function setPickYear(y){
+  if(y < YEAR_MIN) y = YEAR_MIN;
+  if(y > YEAR_MAX) y = YEAR_MAX;
+  pickYear = y;
+  var teams = teamsForYear(pickYear);
+  function has(id){ for(var i=0;i<teams.length;i++) if(teams[i].id===id) return true; return false; }
+  if(pickA!=null && !has(pickA)) pickA = null;
+  if(pickB!=null && !has(pickB)) pickB = null;
+}
 var searchMsg = "";
 var replayFeed = null;
 var replayPlays = [];
@@ -449,17 +487,21 @@ function renderPicker(){
   var colW = 780, gap = 14;
   var xA = 40, xB = CW-40-colW;
   var topY = 190;
-  var btnW = (colW - 2*gap)/3, btnH = 148; // 3 cols x 10 rows, ~2x cell area
+  var TEAMS_Y = teamsForYear(pickYear);
+  var nRows = Math.ceil(TEAMS_Y.length/3);
+  var btnW = (colW - 2*gap)/3;
+  var btnH = Math.min(148, Math.floor((CH - topY - 80 - (nRows-1)*gap) / Math.max(1,nRows)));
+  if(btnH < 60) btnH = 60;
 
   text("TEAM A", xA+colW/2, topY-20, 40, true, "center");
   text("TEAM B", xB+colW/2, topY-20, 40, true, "center");
 
   function grid(x0, sel, setFn){
-    for(var i=0;i<TEAMS.length;i++){
+    for(var i=0;i<TEAMS_Y.length;i++){
       var col = i%3, row = Math.floor(i/3);
       var bx = x0 + col*(btnW+gap);
       var by = topY + row*(btnH+gap);
-      var t = TEAMS[i];
+      var t = TEAMS_Y[i];
       if(sel===t.id){
         fillRect(bx,by,btnW,btnH);
         text(t.c, bx+btnW/2, by+btnH/2+18, 52, true, "center", "#fff");
@@ -473,17 +515,43 @@ function renderPicker(){
   grid(xA, pickA, function(id){ pickA=id; });
   grid(xB, pickB, function(id){ pickB=id; });
 
-  // season selector in the center
+  // season selector in the center: decade picker (left) + year-within-decade (right)
   var cy = topY + 300;
   text("SEASON", CENTER_X, cy-90, 40, true, "center");
-  text(String(pickYear), CENTER_X, cy+16, 72, true, "center");
+  var decade = Math.floor(pickYear/10)*10;
+  var yearOff = pickYear - decade;
   var aw = 70;
-  rect(CENTER_X-165, cy-40, aw, 80, 4);
-  text("<", CENTER_X-165+aw/2, cy+16, 48, true, "center");
-  addHit(CENTER_X-165-15, cy-60, aw+30, 120, function(){ if(pickYear>YEAR_MIN){ pickYear--; render(); } });
-  rect(CENTER_X+95, cy-40, aw, 80, 4);
-  text(">", CENTER_X+95+aw/2, cy+16, 48, true, "center");
-  addHit(CENTER_X+95-15, cy-60, aw+30, 120, function(){ if(pickYear<YEAR_MAX){ pickYear++; render(); } });
+  var selGap = 60; // gap between the two selectors
+  // Decade selector (left of center)
+  var decCX = CENTER_X - 230;
+  text(decade+"s", decCX, cy+16, 64, true, "center");
+  rect(decCX-200, cy-40, aw, 80, 4);
+  text("<", decCX-200+aw/2, cy+16, 48, true, "center");
+  addHit(decCX-200-15, cy-60, aw+30, 120, function(){
+    var d = Math.floor(pickYear/10)*10 - 10;
+    if(d + 9 >= YEAR_MIN){ setPickYear(Math.max(YEAR_MIN, d + (pickYear%10))); render(); }
+  });
+  rect(decCX+130, cy-40, aw, 80, 4);
+  text(">", decCX+130+aw/2, cy+16, 48, true, "center");
+  addHit(decCX+130-15, cy-60, aw+30, 120, function(){
+    var d = Math.floor(pickYear/10)*10 + 10;
+    if(d <= YEAR_MAX){ setPickYear(Math.min(YEAR_MAX, d + (pickYear%10))); render(); }
+  });
+  text("DECADE", decCX, cy+72, 26, true, "center");
+  // Year-within-decade selector (right of center)
+  var yrCX = CENTER_X + 230;
+  text(String(pickYear), yrCX, cy+16, 64, true, "center");
+  rect(yrCX-200, cy-40, aw, 80, 4);
+  text("<", yrCX-200+aw/2, cy+16, 48, true, "center");
+  addHit(yrCX-200-15, cy-60, aw+30, 120, function(){
+    if(yearOff > 0 && pickYear-1 >= YEAR_MIN){ setPickYear(pickYear-1); render(); }
+  });
+  rect(yrCX+130, cy-40, aw, 80, 4);
+  text(">", yrCX+130+aw/2, cy+16, 48, true, "center");
+  addHit(yrCX+130-15, cy-60, aw+30, 120, function(){
+    if(yearOff < 9 && pickYear+1 <= YEAR_MAX){ setPickYear(pickYear+1); render(); }
+  });
+  text("YEAR", yrCX, cy+72, 26, true, "center");
 
   if(searchMsg) text(searchMsg, CENTER_X, cy+140, 34, true, "center");
 

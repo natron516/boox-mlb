@@ -120,13 +120,42 @@ function teamNameForYear(team, year){
 function teamsForYear(year){
   return ALL_TEAMS.filter(function(t){ return year >= t.from && year <= t.to; });
 }
-var RETRO_CODES = {
-  108:"LAA",109:"ARI",110:"BAL",111:"BOS",112:"CHN",113:"CIN",
-  114:"CLE",115:"COL",116:"DET",117:"HOU",118:"KCA",119:"LAN",
-  120:"WAS",121:"NYN",133:"OAK",134:"PIT",135:"SDN",136:"SEA",
-  137:"SFN",138:"SLN",139:"TBA",140:"TEX",141:"TOR",142:"MIN",
-  143:"PHI",144:"ATL",145:"CHA",146:"MIA",147:"NYA",158:"MIL"
-};
+// Returns all Retrosheet team codes that could match this team id in a given year
+function retroCodesForTeam(id, year) {
+  var map = {
+    108: year>=2005?["LAA"]:year>=1997?["ANA"]:year>=1966?["CAL"]:["LAA"],
+    109: ["ARI"],
+    110: year>=1954?["BAL"]:year>=1902?["SLA"]:["ML1"],
+    111: year>=1908?["BOS"]:["BOS"],
+    112: ["CHN"],
+    113: ["CIN"],
+    114: year>=2022?["CLE"]:year>=1915?["CLE"]:year>=1903?["CLE"]:["CLE"],
+    115: ["COL"],
+    116: ["DET"],
+    117: year>=1965?["HOU"]:["HOU"],
+    118: year>=1969?["KCA"]:["KCA"],
+    119: year>=1958?["LAN"]:year>=1932?["BRO"]:year>=1914?["BRO"]:["BRO"],
+    120: ["WAS"],
+    121: ["NYN"],
+    133: year>=1968?["OAK"]:year>=1955?["KCA","KC1"]:["PHA"],
+    134: ["PIT"],
+    135: ["SDN"],
+    136: ["SEA","SE1"],
+    137: year>=1958?["SFN"]:["NY1"],
+    138: ["SLN"],
+    139: year>=1998?["TBA"]:["TBA"],
+    140: year>=1972?["TEX"]:["TEX"],
+    141: ["TOR"],
+    142: year>=1961?["MIN"]:["WS1","WS2"],
+    143: ["PHI"],
+    144: year>=1966?["ATL"]:year>=1953?["ML1","MLN"]:["BSN"],
+    145: ["CHA"],
+    146: year>=2012?["MIA"]:["FLO"],
+    147: year>=1913?["NYA"]:["NYA"],
+    158: year>=1970?["MIL"]:["SE1"]
+  };
+  return map[id] || [];
+}
 var RS_BASE = "https://natron516.github.io/boox-mlb/rs/";
 var retroGame = null; // loaded Retrosheet game object
 var pickA = null, pickB = null;
@@ -986,21 +1015,23 @@ function retroPitchType(){
 }
 function findRetroGame(){
   mode = "searching"; render();
-  var rc_a = RETRO_CODES[pickA], rc_b = RETRO_CODES[pickB];
-  if(!rc_a || !rc_b){ mode="picker"; searchMsg="TEAM NOT IN RETROSHEET"; render(); return; }
+  var codesA = retroCodesForTeam(pickA, pickYear);
+  var codesB = retroCodesForTeam(pickB, pickYear);
+  if(!codesA.length || !codesB.length){ mode="picker"; searchMsg="TEAM NOT IN RETROSHEET"; render(); return; }
   fetch(RS_BASE + "idx.json").then(function(r){ return r.json(); }).then(function(idx){
     var games = (idx[String(pickYear)]||[]).filter(function(g){
-      return (g.home===rc_a&&g.vis===rc_b)||(g.home===rc_b&&g.vis===rc_a)||
-             (pickA===pickB&&(g.home===rc_a||g.vis===rc_a));
+      var aMatch = codesA.indexOf(g.home)>=0 || codesA.indexOf(g.vis)>=0;
+      var bMatch = codesB.indexOf(g.home)>=0 || codesB.indexOf(g.vis)>=0;
+      return aMatch && bMatch;
     });
-    if(!games.length){ mode="picker"; searchMsg="NO RETROSHEET GAME FOUND"; render(); return; }
+    if(!games.length){ mode="picker"; searchMsg="NO GAME FOUND FOR THIS MATCHUP"; render(); return; }
     var pick = games[Math.floor(Math.random()*games.length)];
     fetch(RS_BASE + pickYear + ".json").then(function(r){ return r.json(); }).then(function(yr){
       var g = yr.filter(function(x){ return x.id===pick.id; })[0];
       if(!g){ mode="picker"; searchMsg="GAME DATA MISSING"; render(); return; }
       retroGame = g;
       replayPlays = g.plays; replayIdx = 0; replayPitchIdx = 0;
-      replayFeed = null; // signal: use retroGame not StatsAPI feed
+      replayFeed = null;
       replayLabel = "REPLAY \u00b7 " + g.vis + " @ " + g.home + " \u00b7 " + g.date;
       mode = "replay"; replayPaused = false; startReplayTimer(); render();
     }).catch(function(){ mode="picker"; searchMsg="RETROSHEET FETCH FAILED"; render(); });

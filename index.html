@@ -740,15 +740,17 @@ function animateHit(coordX, coordY, eventType, isHit){
 // ---- runner animation ----
 var runnerAnim = null;
 // {fromX, fromY, toX, toY, t, frames, onDone}
-function animateRunner(fromX, fromY, toX, toY, onDone){
+function animateRunner(fromX, fromY, toX, toY, onDone, frames, delayMs){
   if(runnerAnim) return; // one at a time
-  runnerAnim = {fromX:fromX, fromY:fromY, toX:toX, toY:toY, t:0, frames:16, onDone:onDone};
+  var fr = frames || 16;
+  var dm = delayMs || 60;
+  runnerAnim = {fromX:fromX, fromY:fromY, toX:toX, toY:toY, t:0, frames:fr, onDone:onDone};
   function step(){
     if(!runnerAnim) return;
     runnerAnim.t++;
     render();
     if(runnerAnim.t < runnerAnim.frames){
-      setTimeout(step, 60);
+      setTimeout(step, dm);
     } else {
       var cb = runnerAnim.onDone;
       runnerAnim = null;
@@ -756,7 +758,15 @@ function animateRunner(fromX, fromY, toX, toY, onDone){
       if(cb) cb();
     }
   }
-  setTimeout(step, 60);
+  setTimeout(step, dm);
+}
+// Dugout positions beside home plate
+var DUGOUT_HOME = {x: D_HOME.x + 200, y: D_HOME.y + 50};
+var DUGOUT_VIS  = {x: D_HOME.x - 340, y: D_HOME.y + 50};
+// Batter walks from home plate to the near dugout (out)
+function animateBatterOut(isTop, onDone){
+  var d = isTop ? DUGOUT_VIS : DUGOUT_HOME;
+  animateRunner(D_HOME.x, D_HOME.y, d.x + 70, d.y + 25, onDone, 12, 80);
 }
 // Base coordinates matching where runners stand in drawDiamond
 function baseCoord(b){
@@ -836,6 +846,12 @@ function startReplayTimer(){
             replayPitchIdx = 0;
             render();
           });
+        } else if(play.desc==="Out"||play.desc==="Strikeout"||play.desc==="Force Out"||play.desc==="Double Play"||play.desc==="Error"){
+          animateBatterOut(play.t===0, function(){
+            replayIdx++;
+            replayPitchIdx = 0;
+            render();
+          });
         } else {
           replayIdx++;
           replayPitchIdx = 0;
@@ -891,19 +907,25 @@ function startReplayTimer(){
           }
         }
       }catch(e){}
-      // runner animation chain: lead runners advance, then batter to 1B
+      // runner animation chain: lead runners advance, then batter to 1B (or dugout on out)
       var steps = buildRunnerSteps(replayIdx>0 ? replayPlays[replayIdx-1] : null, lastPlay);
       if(batterReachesFirst(evName)) steps.push({from:0, to:1});
-      if(steps.length){
-        runRunnerSteps(steps, function(){
-          replayIdx++;
-          replayPitchIdx = 0;
-          render();
-        });
-      } else {
+      var isOutEv = !batterReachesFirst(evName) && /strikeout|groundout|flyout|lineout|pop out|popout|forceout|force out|double play|grounded into dp|sac fly|sac bunt|field out/.test(evLow);
+      var advance = function(){
         replayIdx++;
         replayPitchIdx = 0;
         render();
+      };
+      var finish = isOutEv ? function(){
+        var top2 = !!(lastPlay && lastPlay.about && lastPlay.about.halfInning==="top");
+        animateBatterOut(top2, advance);
+      } : advance;
+      if(steps.length){
+        runRunnerSteps(steps, finish);
+      } else if(isOutEv){
+        finish();
+      } else {
+        advance();
       }
     } else {
       stopReplayTimer();
@@ -1387,6 +1409,12 @@ function drawDiamond(st){
     stickFigure(D_3B.x, D_3B.y, 80);
     text(lastName(st.bases[3]), D_3B.x, D_3B.y-80-14, 26, true, "center");
   }
+
+  // dugouts beside home plate
+  rect(DUGOUT_HOME.x, DUGOUT_HOME.y, 140, 50, 3);
+  text("DUGOUT", DUGOUT_HOME.x + 70, DUGOUT_HOME.y + 33, 22, true, "center");
+  rect(DUGOUT_VIS.x, DUGOUT_VIS.y, 140, 50, 3);
+  text("DUGOUT", DUGOUT_VIS.x + 70, DUGOUT_VIS.y + 33, 22, true, "center");
 
   // animated runner in motion
   if(runnerAnim){

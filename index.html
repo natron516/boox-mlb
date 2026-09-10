@@ -34,7 +34,7 @@ function font(px, bold){ ctx.font = (bold?"bold ":"") + px + "px " + MONO; }
 // ================= DATA / POLLING (from original mlb.html) =================
 var FAV = "SEA";
 var SCHED_FIELDS = "dates,date,games,gamePk,gameDate,status,abstractGameState,detailedState,statusCode,codedGameState,teams,away,home,team,id,name,score,linescore,currentInning,inningState,inningHalf,isTopInning,runs,hits,errors,outs";
-var FEED_FIELDS = "gameData,teams,away,home,id,name,abbreviation,status,abstractGameState,detailedState,statusCode,liveData,linescore,currentInning,currentInningOrdinal,inningState,inningHalf,isTopInning,runs,hits,errors,innings,num,offense,batter,onDeck,inHole,fullName,first,second,third,defense,pitcher,count,balls,strikes,outs,plays,currentPlay,allPlays,playEvents,isPitch,details,description,call,pitchData,coordinates,pX,pZ,strikeZoneTop,strikeZoneBottom,type,result,event,awayScore,homeScore,about,inning,halfInning,isComplete,matchup,batSide,code,pitchHand,boxscore,battingOrder,players,person,position,abbreviation,stats,batting,pitching,atBats,hits,rbi,homeRuns,inningsPitched,earnedRuns,wins,losses,strikeOuts,baseOnBalls,era,whip,seasonStats,avg,decisions,winner,loser,save,postOnFirst,postOnSecond,postOnThird,officialDate";
+var FEED_FIELDS = "gameData,teams,away,home,id,name,abbreviation,status,abstractGameState,detailedState,statusCode,liveData,linescore,currentInning,currentInningOrdinal,inningState,inningHalf,isTopInning,runs,hits,errors,innings,num,offense,batter,onDeck,inHole,fullName,first,second,third,defense,pitcher,count,balls,strikes,outs,plays,currentPlay,allPlays,playEvents,isPitch,details,description,call,pitchData,coordinates,pX,pZ,strikeZoneTop,strikeZoneBottom,type,result,event,awayScore,homeScore,about,inning,halfInning,isComplete,matchup,batSide,code,pitchHand,hitData,launchAngle,totalDistance,trajectory,coordX,coordY,boxscore,battingOrder,players,person,position,abbreviation,stats,batting,pitching,atBats,hits,rbi,homeRuns,inningsPitched,earnedRuns,wins,losses,strikeOuts,baseOnBalls,era,whip,seasonStats,avg,decisions,winner,loser,save,postOnFirst,postOnSecond,postOnThird,officialDate";
 
 var gamePk = null;
 var pollTimer = null;
@@ -616,6 +616,29 @@ function animateBall(pitchType){
   setTimeout(step,55);
 }
 
+// Batted ball arc: flies from home plate toward Statcast hit coordinates
+var hitAnim=null, hitAnimTarget={x:0,y:0};
+function animateHit(coordX, coordY){
+  // Statcast field coords: home plate ~(125, 200), x=right, y=up-field
+  // Map to canvas: canvas home=D_HOME, field goes up (decreasing canvas y)
+  // Scale: ~3.2px per foot
+  var scale = 3.2;
+  var fieldOriginX = 125.42, fieldOriginY = 198.27; // Statcast home plate
+  var dx = (coordX - fieldOriginX) * scale;
+  var dy = (coordY - fieldOriginY) * scale; // positive = into field = canvas up
+  hitAnimTarget = {
+    x: D_HOME.x + dx,
+    y: D_HOME.y - dy
+  };
+  var frames=14, f=0;
+  function step(){
+    f++; hitAnim={t:f/frames}; render();
+    if(f<frames){ setTimeout(step,50); }
+    else{ hitAnim=null; render(); }
+  }
+  setTimeout(step,50);
+}
+
 // ---- replay auto-advance ----
 var replayTimer = null, replayPaused = false;
 function stopReplayTimer(){ if(replayTimer){ clearInterval(replayTimer); replayTimer = null; } }
@@ -644,7 +667,24 @@ function startReplayTimer(){
       replayPitchIdx++;
       render();
     } else if(replayIdx < replayPlays.length-1){
-      // all pitches shown -> next play, reset to intro
+      // all pitches shown -> check if last pitch was in play, fire hit arc
+      try{
+        var lastPlay = replayPlays[replayIdx];
+        if(lastPlay && lastPlay.playEvents){
+          var pevts2 = lastPlay.playEvents;
+          for(var pi2=pevts2.length-1;pi2>=0;pi2--){
+            if(pevts2[pi2].isPitch){
+              var callCode = (pevts2[pi2].details&&pevts2[pi2].details.call&&pevts2[pi2].details.call.code)||"";
+              if(callCode==="X" && pevts2[pi2].hitData){
+                var hd = pevts2[pi2].hitData;
+                if(hd.coordinates&&hd.coordinates.coordX!=null)
+                  animateHit(hd.coordinates.coordX, hd.coordinates.coordY);
+              }
+              break;
+            }
+          }
+        }
+      }catch(e){}
       replayIdx++;
       replayPitchIdx = 0;
       render();
@@ -979,6 +1019,17 @@ function drawDiamond(st){
     var ballY=(1-bt)*(1-bt)*MOUND.y+2*(1-bt)*bt*my+bt*bt*D_HOME.y;
     ctx.fillStyle="#000";
     ctx.beginPath(); ctx.arc(ballX,ballY,14,0,Math.PI*2); ctx.fill();
+  }
+  // batted ball arc — flies from home plate to hit location
+  if(hitAnim){
+    var ht=hitAnim.t;
+    // arc peak halfway along the path
+    var peakX=(D_HOME.x+hitAnimTarget.x)/2;
+    var peakY=Math.min(D_HOME.y,hitAnimTarget.y)-300*(1-(ht*2-1)*(ht*2-1));
+    var hbx=(1-ht)*(1-ht)*D_HOME.x+2*(1-ht)*ht*peakX+ht*ht*hitAnimTarget.x;
+    var hby=(1-ht)*(1-ht)*D_HOME.y+2*(1-ht)*ht*peakY+ht*ht*hitAnimTarget.y;
+    ctx.fillStyle="#000";
+    ctx.beginPath(); ctx.arc(hbx,hby,14,0,Math.PI*2); ctx.fill();
   }
 
   // fielders (infield)

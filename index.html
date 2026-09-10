@@ -525,23 +525,8 @@ function exitReplay(){
 var ballAnim = null; // {t: 0..1}
 var ballAnimating = false;
 function animateBall(done){
-  if(ballAnimating){ if(done) done(); return; }
-  ballAnimating = true;
-  var frames = 4, f = 0;
-  function step(){
-    f++;
-    ballAnim = { t: f/frames };
-    render();
-    if(f < frames){
-      requestAnimationFrame(step);
-    } else {
-      ballAnim = null;
-      ballAnimating = false;
-      render();
-      if(done) done();
-    }
-  }
-  requestAnimationFrame(step);
+  // Skip animation on eink — just call done immediately
+  if(done) done();
 }
 
 // ---- replay auto-advance ----

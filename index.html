@@ -882,13 +882,21 @@ function drawPitchPanel(st){
   // pitch-by-pitch log next to zone
   var lx = side==="L" ? px + zw + 30 : px - 30;
   var align = side==="L" ? "left" : "right";
-  text("PITCHES", lx, py+16, 26, true, align);
+  // log box border
+  var logW = 260, logH = zh + 30;
+  var logX = side==="L" ? px + zw + 10 : px - 10 - logW;
+  rect(logX, py - 30, logW, logH, 2);
+  invBand(logX, py - 30, logW, 36, "PITCHES", 24);
   var n = st.pitches.length;
   var show = st.pitches.slice(-6);
-  for(var k=0;k<show.length;k++){
-    var num = n - show.length + k + 1;
-    var s = num+". "+show[k].call.substring(0,18)+(show[k].type?" ("+show[k].type.substring(0,10)+")":"");
-    text(s, lx, py+52+k*34, 24, false, align);
+  if(!show.length){
+    text("--", logX + logW/2, py + 30, 26, false, "center");
+  } else {
+    for(var k=0;k<show.length;k++){
+      var num = n - show.length + k + 1;
+      var s = num+". "+show[k].call.substring(0,14);
+      text(s, logX + 10, py + 10 + k*36, 24, false, "left");
+    }
   }
 }
 

@@ -10,8 +10,9 @@
 <title>MLB Gameday</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  html,body { background:#000; margin:0; padding:0; width:100vw; height:100vh; overflow:hidden; display:flex; align-items:center; justify-content:center; }
-  #cv { display:block; width:100vw; height:56.25vw; max-height:100vh; max-width:177.78vh; }
+  html,body { background:#000; margin:0; padding:0; width:100vw; height:100vh; overflow:hidden; }
+  #cv { display:block; position:fixed; top:0; left:0; width:100vw; height:100vh; }
+  #fsbtn { position:fixed; top:0; left:0; width:100%; z-index:99999; }
 </style>
 </head>
 <body>
@@ -1057,11 +1058,11 @@ function drawDiamond(st){
     {x: D_3B.x-70,  y: D_3B.y-70}    // 3B
   ];
   IF.forEach(function(f){ stickFigure(f.x, f.y, 60, 4); });
-  // outfielders — above 2B (smaller y = higher on screen)
+  // outfielders — between box score and 2B
   var OF = [
-    {x: CENTER_X-420, y: D_2B.y-120}, // LF
-    {x: CENTER_X,     y: D_2B.y-180}, // CF
-    {x: CENTER_X+420, y: D_2B.y-120}  // RF
+    {x: CENTER_X-420, y: D_2B.y-40},  // LF
+    {x: CENTER_X,     y: D_2B.y-90},  // CF
+    {x: CENTER_X+420, y: D_2B.y-40}   // RF
   ];
   OF.forEach(function(f){ stickFigure(f.x, f.y, 50, 3); });
 

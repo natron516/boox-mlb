@@ -7,7 +7,7 @@
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html,body { background:#fff; margin:0; padding:0; width:100vw; height:100vh; overflow:hidden; }
-  #cv { display:block; width:100vw; height:100vh; object-fit:contain; }
+  #cv { display:block; max-width:100vw; max-height:100vh; width:auto; height:auto; }
 </style>
 </head>
 <body>
@@ -853,11 +853,12 @@ function drawDiamond(st){
 
 // ---- strike zone + pitch log (batting side) ----
 function drawPitchPanel(st){
-  // batting side: away bats in top => LEFT side; home bats bottom => RIGHT side.
   var side = st.isTop ? "L" : "R";
   var lineupH2 = 56 + 40 + 9*86 + 14;
-  var px = side==="L" ? PANEL_X_L + 30 : PANEL_X_R + PANEL_W - 30 - 180;
-  var py = PANEL_Y + lineupH2 + 220;
+  var pitcherBoxH = 200;
+  var panelX = side==="L" ? PANEL_X_L : PANEL_X_R;
+  var py = PANEL_Y + lineupH2 + 16 + pitcherBoxH + 20;
+  var px = panelX + 20;
 
   // strike zone: 3x4 grid
   var zw = 180, zh = 240;

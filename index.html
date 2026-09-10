@@ -50,37 +50,72 @@ var errNote = "";
 var mode = "live"; // live | picker | searching | replay
 // Each entry: {id, c, from, to}  (to=9999 means still active)
 var ALL_TEAMS = [
-  {id:108, c:"LAA",  n:"LA Angels",           from:1961, to:9999},
-  {id:109, c:"ARI",  n:"AZ Diamondbacks",     from:1998, to:9999},
-  {id:110, c:"BAL",  n:"Baltimore Orioles",   from:1901, to:9999},
-  {id:111, c:"BOS",  n:"Boston Red Sox",      from:1901, to:9999},
-  {id:112, c:"CHC",  n:"Chicago Cubs",        from:1903, to:9999},
-  {id:113, c:"CIN",  n:"Cincinnati Reds",     from:1903, to:9999},
-  {id:114, c:"CLE",  n:"Cleveland Guardians", from:1901, to:9999},
-  {id:115, c:"COL",  n:"Colorado Rockies",    from:1993, to:9999},
-  {id:116, c:"DET",  n:"Detroit Tigers",      from:1901, to:9999},
-  {id:117, c:"HOU",  n:"Houston Astros",      from:1962, to:9999},
-  {id:118, c:"KC",   n:"Kansas City Royals",  from:1969, to:9999},
-  {id:119, c:"LAD",  n:"LA Dodgers",          from:1903, to:9999},
-  {id:120, c:"WSH",  n:"Washington Nationals",from:2005, to:9999},
-  {id:121, c:"NYM",  n:"NY Mets",             from:1962, to:9999},
-  {id:133, c:"ATH",  n:"Athletics",           from:1901, to:9999},
-  {id:134, c:"PIT",  n:"Pittsburgh Pirates",  from:1903, to:9999},
-  {id:135, c:"SD",   n:"San Diego Padres",    from:1969, to:9999},
-  {id:136, c:"SEA",  n:"Seattle Mariners",    from:1977, to:9999},
-  {id:137, c:"SF",   n:"SF Giants",           from:1903, to:9999},
-  {id:138, c:"STL",  n:"St. Louis Cardinals", from:1903, to:9999},
-  {id:139, c:"TB",   n:"Tampa Bay Rays",      from:1998, to:9999},
-  {id:140, c:"TEX",  n:"Texas Rangers",       from:1972, to:9999},
-  {id:141, c:"TOR",  n:"Toronto Blue Jays",   from:1977, to:9999},
-  {id:142, c:"MIN",  n:"Minnesota Twins",     from:1901, to:9999},
-  {id:143, c:"PHI",  n:"Philadelphia Phillies",from:1901, to:9999},
-  {id:144, c:"ATL",  n:"Atlanta Braves",      from:1903, to:9999},
-  {id:145, c:"CWS",  n:"Chicago White Sox",   from:1901, to:9999},
-  {id:146, c:"MIA",  n:"Miami Marlins",       from:1993, to:9999},
-  {id:147, c:"NYY",  n:"NY Yankees",          from:1903, to:9999},
-  {id:158, c:"MIL",  n:"Milwaukee Brewers",   from:1969, to:9999}
+  {id:108, c:"LAA", from:1961, to:9999, names:[
+    {from:1961,to:1965,n:"LA Angels"},{from:1966,to:1996,n:"California Angels"},
+    {from:1997,to:2004,n:"Anaheim Angels"},{from:2005,to:9999,n:"LA Angels"}]},
+  {id:109, c:"ARI", from:1998, to:9999, names:[{from:1998,to:9999,n:"AZ Diamondbacks"}]},
+  {id:110, c:"BAL", from:1901, to:9999, names:[
+    {from:1901,to:1901,n:"Milwaukee Brewers"},{from:1902,to:1953,n:"St. Louis Browns"},
+    {from:1954,to:9999,n:"Baltimore Orioles"}]},
+  {id:111, c:"BOS", from:1901, to:9999, names:[
+    {from:1901,to:1907,n:"Boston Americans"},{from:1908,to:9999,n:"Boston Red Sox"}]},
+  {id:112, c:"CHN", from:1903, to:9999, names:[
+    {from:1903,to:1906,n:"Chicago Orphans"},{from:1907,to:9999,n:"Chicago Cubs"}]},
+  {id:113, c:"CIN", from:1903, to:9999, names:[
+    {from:1903,to:1953,n:"Cincinnati Reds"},{from:1954,to:1958,n:"Cincinnati Redlegs"},
+    {from:1959,to:9999,n:"Cincinnati Reds"}]},
+  {id:114, c:"CLE", from:1901, to:9999, names:[
+    {from:1901,to:1902,n:"Cleveland Blues"},{from:1903,to:1914,n:"Cleveland Naps"},
+    {from:1915,to:2021,n:"Cleveland Indians"},{from:2022,to:9999,n:"Cleveland Guardians"}]},
+  {id:115, c:"COL", from:1993, to:9999, names:[{from:1993,to:9999,n:"Colorado Rockies"}]},
+  {id:116, c:"DET", from:1901, to:9999, names:[{from:1901,to:9999,n:"Detroit Tigers"}]},
+  {id:117, c:"HOU", from:1962, to:9999, names:[
+    {from:1962,to:1964,n:"Houston Colt .45s"},{from:1965,to:9999,n:"Houston Astros"}]},
+  {id:118, c:"KCA", from:1969, to:9999, names:[{from:1969,to:9999,n:"Kansas City Royals"}]},
+  {id:119, c:"LAN", from:1903, to:9999, names:[
+    {from:1903,to:1910,n:"Brooklyn Superbas"},{from:1911,to:1913,n:"Brooklyn Dodgers"},
+    {from:1914,to:1931,n:"Brooklyn Robins"},{from:1932,to:1957,n:"Brooklyn Dodgers"},
+    {from:1958,to:9999,n:"LA Dodgers"}]},
+  {id:120, c:"WAS", from:2005, to:9999, names:[{from:2005,to:9999,n:"Washington Nationals"}]},
+  {id:121, c:"NYN", from:1962, to:9999, names:[{from:1962,to:9999,n:"NY Mets"}]},
+  {id:133, c:"OAK", from:1901, to:9999, names:[
+    {from:1901,to:1954,n:"Philadelphia Athletics"},{from:1955,to:1967,n:"Kansas City Athletics"},
+    {from:1968,to:2024,n:"Oakland Athletics"},{from:2025,to:9999,n:"Sacramento Athletics"}]},
+  {id:134, c:"PIT", from:1903, to:9999, names:[{from:1903,to:9999,n:"Pittsburgh Pirates"}]},
+  {id:135, c:"SDN", from:1969, to:9999, names:[{from:1969,to:9999,n:"San Diego Padres"}]},
+  {id:136, c:"SEA", from:1977, to:9999, names:[{from:1977,to:9999,n:"Seattle Mariners"}]},
+  {id:137, c:"SFN", from:1903, to:9999, names:[
+    {from:1903,to:1957,n:"NY Giants"},{from:1958,to:9999,n:"SF Giants"}]},
+  {id:138, c:"SLN", from:1903, to:9999, names:[{from:1903,to:9999,n:"St. Louis Cardinals"}]},
+  {id:139, c:"TBA", from:1998, to:9999, names:[
+    {from:1998,to:2007,n:"Tampa Bay Devil Rays"},{from:2008,to:9999,n:"Tampa Bay Rays"}]},
+  {id:140, c:"TEX", from:1972, to:9999, names:[{from:1972,to:9999,n:"Texas Rangers"}]},
+  {id:141, c:"TOR", from:1977, to:9999, names:[{from:1977,to:9999,n:"Toronto Blue Jays"}]},
+  {id:142, c:"MIN", from:1901, to:9999, names:[
+    {from:1901,to:1960,n:"Washington Senators"},{from:1961,to:9999,n:"Minnesota Twins"}]},
+  {id:143, c:"PHI", from:1901, to:9999, names:[
+    {from:1901,to:1942,n:"Philadelphia Phillies"},{from:1943,to:1944,n:"Philadelphia Blue Jays"},
+    {from:1945,to:9999,n:"Philadelphia Phillies"}]},
+  {id:144, c:"ATL", from:1903, to:9999, names:[
+    {from:1903,to:1952,n:"Boston Braves"},{from:1953,to:1965,n:"Milwaukee Braves"},
+    {from:1966,to:9999,n:"Atlanta Braves"}]},
+  {id:145, c:"CHA", from:1901, to:9999, names:[
+    {from:1901,to:1903,n:"Chicago White Stockings"},{from:1904,to:9999,n:"Chicago White Sox"}]},
+  {id:146, c:"MIA", from:1993, to:9999, names:[
+    {from:1993,to:2011,n:"Florida Marlins"},{from:2012,to:9999,n:"Miami Marlins"}]},
+  {id:147, c:"NYA", from:1903, to:9999, names:[
+    {from:1903,to:1912,n:"NY Highlanders"},{from:1913,to:9999,n:"NY Yankees"}]},
+  {id:158, c:"MIL", from:1969, to:9999, names:[
+    {from:1969,to:1969,n:"Seattle Pilots"},{from:1970,to:9999,n:"Milwaukee Brewers"}]}
 ];
+
+function teamNameForYear(team, year){
+  var names = team.names || [];
+  for(var i=names.length-1;i>=0;i--){
+    if(year >= names[i].from) return names[i].n;
+  }
+  return names.length ? names[0].n : team.c;
+}
 
 function teamsForYear(year){
   return ALL_TEAMS.filter(function(t){ return year >= t.from && year <= t.to; });
@@ -555,10 +590,10 @@ function renderPicker(){
       var t = TEAMS_Y[i];
       if(sel===t.id){
         fillRect(bx,by,btnW,btnH);
-        drawTeamName(t.n||t.c, bx+btnW/2, by+btnH/2, btnW-16, "#fff");
+        drawTeamName(teamNameForYear(t,pickYear), bx+btnW/2, by+btnH/2, btnW-16, "#fff");
       } else {
         rect(bx,by,btnW,btnH,3);
-        drawTeamName(t.n||t.c, bx+btnW/2, by+btnH/2, btnW-16, "#000");
+        drawTeamName(teamNameForYear(t,pickYear), bx+btnW/2, by+btnH/2, btnW-16, "#000");
       }
       (function(id){ addHit(bx,by,btnW,btnH,function(){ setFn(id); render(); }); })(t.id);
     }

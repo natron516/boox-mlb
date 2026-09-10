@@ -15,7 +15,6 @@
 </style>
 </head>
 <body>
-<div id="fsbtn" onclick="var el=document.documentElement,req=el.requestFullscreen||el.webkitRequestFullscreen||el.mozRequestFullScreen;if(req){req.call(el).then(function(){document.getElementById('fsbtn').style.display='none';}).catch(function(){document.getElementById('fsbtn').style.display='none';});}else{document.getElementById('fsbtn').style.display='none';}" style="position:fixed;top:0;left:0;width:100%;height:80px;background:#000;color:#fff;font-size:36px;font-weight:bold;text-align:center;line-height:80px;z-index:99999;cursor:pointer;">⛶ TAP FOR FULLSCREEN</div>
 <canvas id="cv"></canvas>
 <script>
 (function(){
@@ -369,13 +368,15 @@ var PANEL_X_L = 30;
 var PANEL_X_R = CW - 30 - PANEL_W;
 var PANEL_Y = 440;               // panels start below header/score/grid
 var CENTER_X = CW/2;
+var CHROME_BAR = 80;             // padding to avoid Chrome UI bars
+var BOT = CH - CHROME_BAR;       // effective drawing bottom
 
 // diamond geometry — landscape coords, diamond in center column
 // center column: x from PANEL_X_L+PANEL_W+10 to PANEL_X_R-10
-var D_HOME = { x: CENTER_X, y: 1200 };
-var D_2B   = { x: CENTER_X, y: 680 };
-var D_1B   = { x: CENTER_X+360, y: 940 };
-var D_3B   = { x: CENTER_X-360, y: 940 };
+var D_HOME = { x: CENTER_X, y: 1100 };
+var D_2B   = { x: CENTER_X, y: 600 };
+var D_1B   = { x: CENTER_X+360, y: 850 };
+var D_3B   = { x: CENTER_X-360, y: 850 };
 var MOUND  = { x: CENTER_X, y: (D_HOME.y + D_2B.y)/2 };
 
 // ================= RENDER =================
@@ -434,16 +435,15 @@ function render(){
   drawLineupPanel(PANEL_X_R, PANEL_Y, st.home, st.homeLineup, !st.isTop ? st.batterId : null);
   drawPitcherBox(PANEL_X_R, PANEL_Y + lineupH + 10, st.home + " PITCHER", st.homePitcher);
 
-  // ---- pitch zone + log below the fielding team's pitcher box ----
-  // away pitches when st.isTop; home pitches when !st.isTop
-  var zoneX = st.isTop ? PANEL_X_L : PANEL_X_R;
-  drawPitchZone(st, zoneX, PANEL_Y + lineupH + 10 + 200 + 10);
-
   // ---- center: diamond ----
   drawDiamond(st);
 
+  // ---- pitch zone + log: centered below the B/S/O band, always visible ----
+  var bandBottom = D_HOME.y + 90 + 18 + 56;
+  var zoneBottom = drawPitchZone(st, bandBottom + 14);
+
   // ---- recent plays ----
-  drawRecentPlays(st);
+  drawRecentPlays(st, zoneBottom + 12);
 
     drawScoreboard();
   drawButtons();
@@ -452,7 +452,7 @@ function render(){
 // ---- all games today, thin bottom strip ----
 function drawScoreboard(){
   if(mode!=="live" || !lastGames.length) return;
-  var y = CH - 74;
+  var y = BOT - 10;
   var items = lastGames.map(function(g){
     var a = teamAbbr(g.teams.away.team.name), h = teamAbbr(g.teams.home.team.name);
     var as = g.teams.away.score!=null?g.teams.away.score:"-";
@@ -469,16 +469,17 @@ function drawScoreboard(){
 }
 
 function drawButtons(){
+  var by = BOT - 90;
   if(mode==="replay"){
-    invBand(CENTER_X-160, CH-110, 320, 70, replayPaused ? "> RESUME" : "|| PAUSE", 34);
-    addHit(CENTER_X-160, CH-110, 320, 70, toggleReplayPause);
-    invBand(CW-44-220, CH-110, 220, 70, "X EXIT", 34);
-    addHit(CW-44-220, CH-110, 220, 70, exitReplay);
+    invBand(CENTER_X-160, by, 320, 70, replayPaused ? "> RESUME" : "|| PAUSE", 34);
+    addHit(CENTER_X-160, by, 320, 70, toggleReplayPause);
+    invBand(CW-44-220, by, 220, 70, "X EXIT", 34);
+    addHit(CW-44-220, by, 220, 70, exitReplay);
     return;
   }
-  invBand(44, CH-110, 200, 70, "EXIT", 34);
-  invBand(CW-44-280, CH-110, 280, 70, "> REPLAY", 34);
-  addHit(CW-44-280, CH-110, 280, 70, openPicker);
+  invBand(44, by, 200, 70, "EXIT", 34);
+  invBand(CW-44-280, by, 280, 70, "> REPLAY", 34);
+  addHit(CW-44-280, by, 280, 70, openPicker);
 }
 
 // ================= REPLAY PICKER =================
@@ -875,20 +876,6 @@ function handleTap(clientX, clientY){
   }
 }
 var touched = false;
-// Fullscreen button overlay — visible until fullscreen is achieved
-var fsBtn = document.createElement("div");
-fsBtn.style.cssText = "position:fixed;top:0;left:0;width:100%;height:60px;background:#000;color:#fff;font-size:32px;font-weight:bold;text-align:center;line-height:60px;z-index:9999;cursor:pointer;letter-spacing:2px;";
-fsBtn.textContent = "TAP HERE FOR FULLSCREEN";
-fsBtn.addEventListener("click", function(){
-  var el = document.documentElement;
-  var req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
-  if(req){ req.call(el).then(function(){ fsBtn.style.display="none"; }).catch(function(){}); }
-  else { fsBtn.style.display="none"; }
-});
-document.addEventListener("fullscreenchange", function(){
-  if(document.fullscreenElement) fsBtn.style.display="none";
-});
-document.body.appendChild(fsBtn);
 
 canvas.addEventListener("touchend", function(e){
   touched = true;
@@ -1098,16 +1085,22 @@ function drawDiamond(st){
   }
 }
 
-// ---- single pitch zone + pitch log, in the side panel below the defense pitcher box ----
-function drawPitchZone(st, x0, py){
-  var totW = PANEL_W;
-  // Zone grid: left half
-  var zw = 180, zh = 220;
-  var zx = x0 + (totW/2 - zw)/2;
-  invBand(zx, py, zw, 34, "ZONE", 24);
-  rect(zx, py+34, zw, zh, 3);
-  for(var i=1;i<3;i++) line(zx+i*zw/3, py+34, zx+i*zw/3, py+34+zh, 2);
-  for(var j=1;j<4;j++) line(zx, py+34+j*zh/4, zx+zw, py+34+j*zh/4, 2);
+// ---- pitch zone + pitch log, centered below the B/S/O band (always visible) ----
+// Returns the bottom y of the box.
+function drawPitchZone(st, py){
+  var totW = 600;
+  var x0 = CENTER_X - totW/2;
+  var hdr = 30;
+  // cap height so the box never extends past CH - 140
+  var zh = Math.min(170, (CH - 140) - (py + hdr));
+  if(zh < 80) zh = 80;
+  // Zone grid: left
+  var zw = 200;
+  var zx = x0;
+  invBand(zx, py, zw, hdr, "ZONE", 22);
+  rect(zx, py+hdr, zw, zh, 3);
+  for(var i=1;i<3;i++) line(zx+i*zw/3, py+hdr, zx+i*zw/3, py+hdr+zh, 2);
+  for(var j=1;j<4;j++) line(zx, py+hdr+j*zh/4, zx+zw, py+hdr+j*zh/4, 2);
   // pitch dot
   if(st.lastPitch){
     var p = st.lastPitch;
@@ -1116,52 +1109,52 @@ function drawPitchZone(st, x0, py){
     nx = Math.max(0, Math.min(1, nx));
     nz = Math.max(0, Math.min(1, nz));
     var dx = zx + nx*zw;
-    var dy = py+34 + (1-nz)*zh;
+    var dy = py+hdr + (1-nz)*zh;
     ctx.fillStyle="#000";
     ctx.beginPath(); ctx.arc(dx,dy,10,0,Math.PI*2); ctx.fill();
   }
-  // Pitch log: right half
-  var lx = x0 + totW/2 + 10;
-  var lw = totW/2 - 10;
-  var lh = zh + 34;
-  invBand(lx, py, lw, 34, "PITCHES", 24);
-  rect(lx, py+34, lw, lh-34, 2);
+  // Pitch log: right — show ALL pitches of the current at-bat
+  var lx = x0 + zw + 14;
+  var lw = totW - zw - 14;
+  invBand(lx, py, lw, hdr, "PITCHES", 22);
+  rect(lx, py+hdr, lw, zh, 2);
   var n = st.pitches.length;
-  var show = st.pitches.slice(-6);
-  if(!show.length){
-    text("--", lx+lw/2, py+34+40, 26, false, "center");
+  if(!n){
+    text("--", lx+lw/2, py+hdr+38, 24, false, "center");
   } else {
-    for(var k=0;k<show.length;k++){
-      var num = n - show.length + k + 1;
-      var s = num+". "+show[k].call.substring(0,18);
-      text(s, lx+12, py+34+40+k*38, 24, false, "left");
+    var lineH = Math.min(32, Math.floor((zh-14)/n));
+    var fs = Math.min(24, lineH-4);
+    for(var k=0;k<n;k++){
+      var pt = st.pitches[k];
+      var s = (k+1)+". "+pt.call.substring(0,20)+(pt.type?(" ("+pt.type.substring(0,10)+")"):"");
+      text(s, lx+12, py+hdr+lineH+k*lineH, fs, false, "left");
     }
   }
+  return py + hdr + zh;
 }
 
 // ---- recent plays ----
-function drawRecentPlays(st){
+function drawRecentPlays(st, y){
   var w = 1060, x = CENTER_X - w/2;
-  var y = D_HOME.y + 90 + 18 + 56 + 20;
-  var hdrH = 56, rowH = 58;
-  var rows = 5;
-  var h = hdrH + rows*rowH + 12;
-  if(y + h > CH - 116) y = CH - 116 - h;
+  var hdrH = 48, rowH = 46;
+  var rows = 3;
+  var h = hdrH + rows*rowH + 10;
+  if(y + h > BOT - 100) y = BOT - 100 - h;
   rect(x, y, w, h, 3);
-  invBand(x, y, w, hdrH, "RECENT PLAYS", 36);
+  invBand(x, y, w, hdrH, "RECENT PLAYS", 32);
   for(var i=0;i<rows;i++){
-    var ry = y+hdrH+40+i*rowH;
+    var ry = y+hdrH+34+i*rowH;
     var p = st.recent[i];
     if(!p){
-      text("--", x+100, ry, 34);
+      text("--", x+100, ry, 30);
       continue;
     }
     var tag = (p.top?"T":"B")+p.inn;
     var score = (p.aw!=null&&p.hm!=null) ? (p.aw+"-"+p.hm) : "";
     var desc = p.desc.length>46 ? p.desc.substring(0,44)+".." : p.desc;
-    text(tag, x+16, ry, 32, true);
-    text(desc, x+100, ry, 34, true);
-    text(score, x+w-20, ry, 32, true, "right");
+    text(tag, x+16, ry, 28, true);
+    text(desc, x+100, ry, 30, true);
+    text(score, x+w-20, ry, 28, true, "right");
   }
 }
 

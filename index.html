@@ -52,7 +52,7 @@ var TEAMS = [
 ];
 var pickA = null, pickB = null;
 var pickYear = new Date().getFullYear() - 1;
-var YEAR_MIN = 1990, YEAR_MAX = new Date().getFullYear();
+var YEAR_MIN = 2000, YEAR_MAX = new Date().getFullYear();
 var searchMsg = "";
 var replayFeed = null;
 var replayPlays = [];
@@ -330,9 +330,9 @@ var CENTER_X = CW/2;
 // diamond geometry — landscape coords, diamond in center column
 // center column: x from PANEL_X_L+PANEL_W+10 to PANEL_X_R-10
 var D_HOME = { x: CENTER_X, y: 1200 };
-var D_2B   = { x: CENTER_X, y: 580 };
-var D_1B   = { x: CENTER_X+360, y: 870 };
-var D_3B   = { x: CENTER_X-360, y: 870 };
+var D_2B   = { x: CENTER_X, y: 680 };
+var D_1B   = { x: CENTER_X+360, y: 940 };
+var D_3B   = { x: CENTER_X-360, y: 940 };
 var MOUND  = { x: CENTER_X, y: (D_HOME.y + D_2B.y)/2 };
 
 // ================= RENDER =================
@@ -383,7 +383,7 @@ function render(){
   drawLinescoreGrid(st, 250);
 
   // ---- left panel: away lineup + pitcher ----
-  var lineupH = 56 + 40 + 9*80 + 14; // ~834
+  var lineupH = 64 + 44 + 9*90 + 14; // ~952
   drawLineupPanel(PANEL_X_L, PANEL_Y, st.away, st.awayLineup, st.isTop ? st.batterId : null);
   drawPitcherBox(PANEL_X_L, PANEL_Y + lineupH + 10, st.away + " PITCHER", st.awayPitcher);
 
@@ -524,24 +524,27 @@ function exitReplay(){
 // ---- pitch ball animation ----
 var ballAnim = null; // {t: 0..1}
 var ballAnimating = false;
-function animateBall(){
-  // Fire-and-forget: ball flies visually, does NOT block pitch advance
+function pitchCurve(type){
+  var t=(type||"").toUpperCase();
+  if(t==="FF"||t==="SI"||t==="FC") return {cx:0,   cy:-70};  // fastball: slight rise
+  if(t==="SL"||t==="ST")           return {cx:100,  cy:30};   // slider: lateral break
+  if(t==="CU"||t==="KC")           return {cx:0,    cy:170};  // curveball: big drop
+  if(t==="CH"||t==="FS")           return {cx:55,   cy:130};  // changeup: drop+fade
+  if(t==="SW")                     return {cx:140,  cy:20};   // sweeper: big horizontal
+  return {cx:0, cy:0};
+}
+var ballAnimPitchType="";
+function animateBall(pitchType){
   if(ballAnimating) return;
-  ballAnimating = true;
-  var frames = 6, f = 0;
+  ballAnimating=true;
+  ballAnimPitchType=pitchType||"";
+  var frames=10, f=0;
   function step(){
-    f++;
-    ballAnim = { t: f/frames };
-    render();
-    if(f < frames){
-      setTimeout(step, 80);
-    } else {
-      ballAnim = null;
-      ballAnimating = false;
-      render();
-    }
+    f++; ballAnim={t:f/frames}; render();
+    if(f<frames){ setTimeout(step,55); }
+    else{ ballAnim=null; ballAnimating=false; render(); }
   }
-  setTimeout(step, 80);
+  setTimeout(step,55);
 }
 
 // ---- replay auto-advance ----
@@ -558,7 +561,17 @@ function startReplayTimer(){
     }
     if(replayPitchIdx < pitchCount){
       // fire animation (non-blocking), advance pitch immediately
-      animateBall();
+      var curType="";
+      try{
+        var pevts=replayPlays[replayIdx].playEvents,pc2=0;
+        for(var pi=0;pi<pevts.length;pi++){
+          if(pevts[pi].isPitch){
+            if(pc2===replayPitchIdx) curType=(pevts[pi].details&&pevts[pi].details.type&&pevts[pi].details.type.code)||"";
+            pc2++;
+          }
+        }
+      }catch(e){}
+      animateBall(curType);
       replayPitchIdx++;
       render();
     } else if(replayIdx < replayPlays.length-1){
@@ -570,7 +583,7 @@ function startReplayTimer(){
       stopReplayTimer();
       render();
     }
-  }, 1200);
+  }, 2200);
 }
 function toggleReplayPause(){
   replayPaused = !replayPaused;
@@ -752,6 +765,13 @@ function handleTap(clientX, clientY){
   }
 }
 var touched = false;
+// Auto-fullscreen on first tap (works from home screen bookmark)
+document.addEventListener("click", function(){
+  if(!document.fullscreenElement && document.documentElement.requestFullscreen){
+    document.documentElement.requestFullscreen().catch(function(){});
+  }
+}, {once: true});
+
 canvas.addEventListener("touchend", function(e){
   touched = true;
   if(e.changedTouches && e.changedTouches.length){
@@ -821,35 +841,31 @@ function drawLinescoreGrid(st, y){
 // ---- lineup panel ----
 function drawLineupPanel(x, y, abbr, lineup, activeBatterId){
   var w = PANEL_W;
-  var hdrH = 56;
-  var rowH = 80;
-  var h = hdrH + 40 + 9*rowH + 14;
+  var hdrH = 64;
+  var rowH = 90;
+  var h = hdrH + 44 + 9*rowH + 14;
   rect(x, y, w, h, 3);
-  invBand(x, y, w, hdrH, abbr + " LINEUP", 36);
-  // column headers
-  text("#", x+18, y+hdrH+32, 30, true);
-  text("BATTER", x+70, y+hdrH+32, 30, true);
-  text("AVG", x+w-230, y+hdrH+32, 30, true);
-  text("TODAY", x+w-130, y+hdrH+32, 30, true);
-  var ry = y+hdrH+44;
+  invBand(x, y, w, hdrH, abbr + " LINEUP", 40);
+  text("#", x+18, y+hdrH+34, 32, true);
+  text("BATTER", x+74, y+hdrH+34, 32, true);
+  text("AVG", x+w-220, y+hdrH+34, 32, true);
+  text("TODAY", x+w-110, y+hdrH+34, 32, true);
+  var ry = y+hdrH+48;
   for(var i=0;i<9;i++){
     var b = lineup[i];
     var top = ry + i*rowH;
     var active = b && activeBatterId && b.id===activeBatterId;
-    if(active){
-      ctx.fillStyle="#000";
-      ctx.fillRect(x+4, top, w-8, rowH-4);
-    }
+    if(active){ ctx.fillStyle="#000"; ctx.fillRect(x+4, top, w-8, rowH-4); }
     var col = active ? "#fff" : "#000";
     if(b){
-      text(String(i+1), x+18, top+38, 36, true, "left", col);
-      text(b.name.substring(0,14), x+70, top+38, 36, true, "left", col);
-      text(b.avg, x+w-230, top+38, 28, false, "left", col);
-      text(b.pos, x+w-100, top+38, 28, false, "left", col);
-      text(b.h+"/"+b.ab+"  "+b.rbi+" RBI  "+b.hr+" HR", x+70, top+74, 28, false, "left", col);
+      text(String(i+1), x+18, top+44, 42, true, "left", col);
+      text(b.name.substring(0,14), x+74, top+44, 42, true, "left", col);
+      text(b.avg, x+w-220, top+44, 32, false, "left", col);
+      text(b.pos, x+w-100, top+44, 32, false, "left", col);
+      text(b.h+"/"+b.ab+"  "+b.rbi+" RBI  "+b.hr+" HR", x+74, top+82, 30, false, "left", col);
     } else {
-      text(String(i+1), x+18, top+38, 36, true, "left", col);
-      text("---", x+70, top+38, 36, false, "left", col);
+      text(String(i+1), x+18, top+44, 42, true, "left", col);
+      text("---", x+74, top+44, 42, false, "left", col);
     }
   }
 }
@@ -886,13 +902,14 @@ function drawDiamond(st){
   ctx.fillStyle="#000";
   ctx.beginPath(); ctx.arc(MOUND.x, MOUND.y, 22, 0, Math.PI*2); ctx.fill();
 
-  // pitched ball in flight (mound -> home plate)
+  // pitched ball — bezier curve shaped by pitch type
   if(ballAnim){
-    var bt = ballAnim.t;
-    var ballX = MOUND.x + (D_HOME.x - MOUND.x)*bt;
-    var ballY = MOUND.y + (D_HOME.y - MOUND.y)*bt;
+    var bt=ballAnim.t, c=pitchCurve(ballAnimPitchType);
+    var mx=(MOUND.x+D_HOME.x)/2+c.cx, my=(MOUND.y+D_HOME.y)/2+c.cy;
+    var ballX=(1-bt)*(1-bt)*MOUND.x+2*(1-bt)*bt*mx+bt*bt*D_HOME.x;
+    var ballY=(1-bt)*(1-bt)*MOUND.y+2*(1-bt)*bt*my+bt*bt*D_HOME.y;
     ctx.fillStyle="#000";
-    ctx.beginPath(); ctx.arc(ballX, ballY, 14, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(ballX,ballY,14,0,Math.PI*2); ctx.fill();
   }
 
   // fielders (infield)
@@ -903,11 +920,11 @@ function drawDiamond(st){
     {x: D_3B.x-70,  y: D_3B.y-70}    // 3B
   ];
   IF.forEach(function(f){ stickFigure(f.x, f.y, 60, 4); });
-  // outfielders
+  // outfielders — below box score, pushed down from 2B
   var OF = [
-    {x: CENTER_X-420, y: D_2B.y-140}, // LF
-    {x: CENTER_X,     y: D_2B.y-200}, // CF
-    {x: CENTER_X+420, y: D_2B.y-140}  // RF
+    {x: CENTER_X-420, y: D_2B.y+80}, // LF
+    {x: CENTER_X,     y: D_2B.y+20}, // CF
+    {x: CENTER_X+420, y: D_2B.y+80}  // RF
   ];
   OF.forEach(function(f){ stickFigure(f.x, f.y, 50, 3); });
 
@@ -996,26 +1013,26 @@ function drawPitchZone(st, x0, py){
 // ---- recent plays ----
 function drawRecentPlays(st){
   var w = 1060, x = CENTER_X - w/2;
-  var y = D_HOME.y + 90 + 18 + 56 + 20; // below B/S/O count band
-  var hdrH = 50, rowH = 44;
-  var rows = 5; // always render 5 rows; "--" placeholder when fewer plays
+  var y = D_HOME.y + 90 + 18 + 56 + 20;
+  var hdrH = 56, rowH = 58;
+  var rows = 5;
   var h = hdrH + rows*rowH + 12;
   if(y + h > CH - 116) y = CH - 116 - h;
   rect(x, y, w, h, 3);
-  invBand(x, y, w, hdrH, "RECENT PLAYS", 32);
+  invBand(x, y, w, hdrH, "RECENT PLAYS", 36);
   for(var i=0;i<rows;i++){
-    var ry = y+hdrH+30+i*rowH;
+    var ry = y+hdrH+40+i*rowH;
     var p = st.recent[i];
     if(!p){
-      text("--", x+90, ry, 28);
+      text("--", x+100, ry, 34);
       continue;
     }
     var tag = (p.top?"T":"B")+p.inn;
     var score = (p.aw!=null&&p.hm!=null) ? (p.aw+"-"+p.hm) : "";
-    var desc = p.desc.length>54 ? p.desc.substring(0,52)+".." : p.desc;
-    text(tag, x+16, ry, 26, true);
-    text(desc, x+90, ry, 28);
-    text(score, x+w-20, ry, 26, true, "right");
+    var desc = p.desc.length>46 ? p.desc.substring(0,44)+".." : p.desc;
+    text(tag, x+16, ry, 32, true);
+    text(desc, x+100, ry, 34, true);
+    text(score, x+w-20, ry, 32, true, "right");
   }
 }
 

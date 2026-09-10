@@ -859,7 +859,7 @@ function drawDiamond(st){
   if(st.batter){
     text(st.batSide+" BAT "+lastName(st.batter)+" VS "+(st.pitcher?lastName(st.pitcher):"---"), CENTER_X, abY, 32, true, "center");
   } else {
-    text(st.detailed||"", CENTER_X, abY, 32, true, "center");
+    text("", CENTER_X, abY, 32, true, "center");
   }
 
   // B/S/O count band (inverted)

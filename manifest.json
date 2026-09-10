@@ -1,9 +1,10 @@
 {
   "name": "MLB Gameday",
   "short_name": "MLB",
-  "display": "standalone",
+  "display": "fullscreen",
   "orientation": "landscape",
-  "start_url": "/boox-mlb/",
+  "start_url": ".",
+  "scope": ".",
   "background_color": "#ffffff",
   "theme_color": "#000000"
 }

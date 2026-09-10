@@ -527,7 +527,7 @@ var ballAnimating = false;
 function animateBall(done){
   if(ballAnimating){ if(done) done(); return; }
   ballAnimating = true;
-  var frames = 8, f = 0;
+  var frames = 4, f = 0;
   function step(){
     f++;
     ballAnim = { t: f/frames };
@@ -572,7 +572,7 @@ function startReplayTimer(){
       stopReplayTimer();
       render();
     }
-  }, 2500);
+  }, 1200);
 }
 function toggleReplayPause(){
   replayPaused = !replayPaused;

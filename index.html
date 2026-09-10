@@ -6,7 +6,7 @@
 <title>MLB Gameday</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  html,body { background:#fff; margin:0; padding:0; width:100%; }
+  html,body { background:#fff; margin:0; padding:0; width:100%; overflow:hidden; }
   #cv { display:block; width:100%; height:auto; }
 </style>
 </head>
@@ -17,7 +17,7 @@
 "use strict";
 
 // ================= CANVAS SETUP =================
-var CW = 1860, CH = 2480; // portrait: 1860 wide x 2480 tall
+var CW = 2480, CH = 1860; // landscape: 2480 wide x 1860 tall
 var canvas = document.getElementById("cv");
 canvas.width = CW; canvas.height = CH;
 canvas.style.width = "100vw";
@@ -302,22 +302,22 @@ function batterFigure(x,y,h,side){
 // ================= LAYOUT CONSTANTS =================
 // margins / frame
 var M1 = 14, M2 = 20;
-// Portrait layout: 1860 wide x 2480 tall
+// Landscape layout: 2480 wide x 1860 tall
 // Top: header + score + linescore grid
 // Middle: LEFT panel | diamond | RIGHT panel  (3-column)
 // Bottom: recent plays + scoreboard
 var PANEL_W = 540;               // left/right lineup panels
 var PANEL_X_L = 30;
 var PANEL_X_R = CW - 30 - PANEL_W;
-var PANEL_Y = 520;               // panels start below header/score/grid
+var PANEL_Y = 440;               // panels start below header/score/grid
 var CENTER_X = CW/2;
 
-// diamond geometry — portrait coords, diamond in center column
+// diamond geometry — landscape coords, diamond in center column
 // center column: x from PANEL_X_L+PANEL_W+10 to PANEL_X_R-10
-var D_HOME = { x: CENTER_X, y: 1620 };
-var D_2B   = { x: CENTER_X, y: 980 };
-var D_1B   = { x: CENTER_X+280, y: 1300 };
-var D_3B   = { x: CENTER_X-280, y: 1300 };
+var D_HOME = { x: CENTER_X, y: 1240 };
+var D_2B   = { x: CENTER_X, y: 700 };
+var D_1B   = { x: CENTER_X+280, y: 970 };
+var D_3B   = { x: CENTER_X-280, y: 970 };
 var MOUND  = { x: CENTER_X, y: (1620+980)/2 };
 
 // ================= RENDER =================
@@ -365,7 +365,7 @@ function render(){
   text(st.home, CENTER_X+90+hsw+40, sy, 82, true, "left");
 
   // ---- inning box score grid ----
-  drawLinescoreGrid(st, 265);
+  drawLinescoreGrid(st, 250);
 
   // ---- left panel: away lineup + pitcher ----
   var lineupH = 56 + 40 + 9*86 + 14;
@@ -895,9 +895,9 @@ function drawPitchPanel(st){
 // ---- recent plays ----
 function drawRecentPlays(st){
   var w = 1060, x = CENTER_X - w/2;
-  var y = D_HOME.y + 180;
+  var y = D_HOME.y + 230;
   var hdrH = 50, rowH = 40;
-  var rows = Math.min(8, st.recent.length);
+  var rows = Math.min(5, st.recent.length);
   var h = hdrH + Math.max(1,rows)*rowH + 12;
   if(y + h > CH - 110) h = CH - 110 - y;
   rect(x, y, w, h, 3);

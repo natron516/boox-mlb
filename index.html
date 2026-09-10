@@ -992,11 +992,11 @@ function drawDiamond(st){
     {x: D_3B.x-70,  y: D_3B.y-70}    // 3B
   ];
   IF.forEach(function(f){ stickFigure(f.x, f.y, 60, 4); });
-  // outfielders — below box score, pushed down from 2B
+  // outfielders — above 2B (smaller y = higher on screen)
   var OF = [
-    {x: CENTER_X-420, y: D_2B.y+80}, // LF
-    {x: CENTER_X,     y: D_2B.y+20}, // CF
-    {x: CENTER_X+420, y: D_2B.y+80}  // RF
+    {x: CENTER_X-420, y: D_2B.y-120}, // LF
+    {x: CENTER_X,     y: D_2B.y-180}, // CF
+    {x: CENTER_X+420, y: D_2B.y-120}  // RF
   ];
   OF.forEach(function(f){ stickFigure(f.x, f.y, 50, 3); });
 

@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>MLB Gameday</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { background:#fff; margin:0; padding:0; width:100%; }
+  #cv { display:block; width:100%; height:auto; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script>
+(function(){
+"use strict";
+
+// ================= CANVAS SETUP =================
+var CW = 1860, CH = 2480; // portrait: 1860 wide x 2480 tall
+var canvas = document.getElementById("cv");
+canvas.width = CW; canvas.height = CH;
+canvas.style.width = "100vw";
+canvas.style.height = "auto";
+var ctx = canvas.getContext("2d");
+
+var MONO = '"Courier New",Courier,monospace';
+function font(px, bold){ ctx.font = (bold?"bold ":"") + px + "px " + MONO; }
+
+// ================= DATA / POLLING (from original mlb.html) =================
+var FAV = "SEA";
+var SCHED_FIELDS = "dates,date,games,gamePk,gameDate,status,abstractGameState,detailedState,statusCode,codedGameState,teams,away,home,team,id,name,score,linescore,currentInning,inningState,inningHalf,isTopInning,runs,hits,errors,outs";
+var FEED_FIELDS = "gameData,teams,away,home,id,name,abbreviation,status,abstractGameState,detailedState,statusCode,liveData,linescore,currentInning,currentInningOrdinal,inningState,inningHalf,isTopInning,runs,hits,errors,innings,num,offense,batter,onDeck,inHole,fullName,first,second,third,defense,pitcher,count,balls,strikes,outs,plays,currentPlay,allPlays,playEvents,isPitch,details,description,call,pitchData,coordinates,pX,pZ,strikeZoneTop,strikeZoneBottom,type,result,event,awayScore,homeScore,about,inning,halfInning,isComplete,matchup,batSide,code,pitchHand,boxscore,battingOrder,players,person,position,abbreviation,stats,batting,pitching,atBats,hits,rbi,homeRuns,inningsPitched,earnedRuns,wins,losses,strikeOuts,baseOnBalls,era,whip,seasonStats,avg,decisions,winner,loser,save";
+
+var gamePk = null;
+var pollTimer = null;
+var pitchClock = 20;
+var clockRunning = false;
+var lastFeed = null;
+var lastGames = [];
+var errNote = "";
+
+function pad2(n){ return (n<10?"0":"")+n; }
+function dstr(d){ return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate()); }
+function schedUrl(){
+  var now = new Date();
+  var y = new Date(now.getTime()-86400000), t = new Date(now.getTime()+86400000);
+  return "https://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate="+dstr(y)+"&endDate="+dstr(t)+"&hydrate=linescore&fields="+SCHED_FIELDS;
+}
+function feedUrl(pk){ return "https://statsapi.mlb.com/api/v1.1/game/"+pk+"/feed/live?fields="+FEED_FIELDS; }
+
+var ABBR = {"Arizona Diamondbacks":"AZ","Atlanta Braves":"ATL","Baltimore Orioles":"BAL","Boston Red Sox":"BOS","Chicago Cubs":"CHC","Chicago White Sox":"CWS","Cincinnati Reds":"CIN","Cleveland Guardians":"CLE","Colorado Rockies":"COL","Detroit Tigers":"DET","Houston Astros":"HOU","Kansas City Royals":"KC","Los Angeles Angels":"LAA","Los Angeles Dodgers":"LAD","Miami Marlins":"MIA","Milwaukee Brewers":"MIL","Minnesota Twins":"MIN","New York Mets":"NYM","New York Yankees":"NYY","Athletics":"ATH","Oakland Athletics":"OAK","Philadelphia Phillies":"PHI","Pittsburgh Pirates":"PIT","San Diego Padres":"SD","San Francisco Giants":"SF","Seattle Mariners":"SEA","St. Louis Cardinals":"STL","Tampa Bay Rays":"TB","Texas Rangers":"TEX","Toronto Blue Jays":"TOR","Washington Nationals":"WSH"};
+function teamAbbr(name){ return ABBR[name] || (name||"").substring(0,3).toUpperCase(); }
+
+function pickGame(games){
+  var live = games.filter(function(g){ return g.status && g.status.abstractGameState==="Live"; });
+  var fav = games.filter(function(g){
+    return teamAbbr(g.teams.away.team.name)===FAV || teamAbbr(g.teams.home.team.name)===FAV
+      || (g.teams.away.team.name||"").indexOf("Mariners")>=0 || (g.teams.home.team.name||"").indexOf("Mariners")>=0;
+  });
+  if(fav.length){
+    var favLive = fav.filter(function(g){ return g.status.abstractGameState==="Live"; });
+    if(favLive.length) return favLive[0];
+    var favToday = fav.filter(function(g){ return g.status.abstractGameState!=="Final"; });
+    if(favToday.length) return favToday[0];
+    return fav[fav.length-1];
+  }
+  if(live.length){
+    live.sort(function(a,b){
+      var da = Math.abs((a.teams.away.score||0)-(a.teams.home.score||0));
+      var db = Math.abs((b.teams.away.score||0)-(b.teams.home.score||0));
+      var ia = a.linescore ? (a.linescore.currentInning||0) : 0;
+      var ib = b.linescore ? (b.linescore.currentInning||0) : 0;
+      return (da-db) || (ib-ia);
+    });
+    return live[0];
+  }
+  return games.length ? games[0] : null;
+}
+
+function lastName(full){
+  if(!full) return "";
+  var parts = full.trim().split(" ");
+  return parts[parts.length-1].toUpperCase();
+}
+function shortName(full){
+  if(!full) return "";
+  var parts = full.trim().split(" ");
+  if(parts.length===1) return parts[0].toUpperCase();
+  return (parts[0][0]+". "+parts[parts.length-1]).toUpperCase();
+}
+
+// ================= DERIVED STATE =================
+function getPlayer(feed, id){
+  try{
+    var t = feed.liveData.boxscore.teams;
+    return t.away.players["ID"+id] || t.home.players["ID"+id] || null;
+  }catch(e){ return null; }
+}
+
+function buildLineup(feed, side){
+  var out = [];
+  try{
+    var team = feed.liveData.boxscore.teams[side];
+    var order = team.battingOrder || [];
+    for(var i=0;i<Math.min(9,order.length);i++){
+      var pl = team.players["ID"+order[i]];
+      if(!pl){ out.push(null); continue; }
+      var b = (pl.stats && pl.stats.batting) || {};
+      var sb = (pl.seasonStats && pl.seasonStats.batting) || {};
+      out.push({
+        id: order[i],
+        name: shortName(pl.person && pl.person.fullName),
+        pos: (pl.position && pl.position.abbreviation) || "",
+        avg: sb.avg || ".---",
+        h: b.hits!=null?b.hits:0,
+        ab: b.atBats!=null?b.atBats:0,
+        rbi: b.rbi!=null?b.rbi:0,
+        hr: b.homeRuns!=null?b.homeRuns:0
+      });
+    }
+  }catch(e){}
+  return out;
+}
+
+function pitcherStats(feed, id){
+  var pl = getPlayer(feed, id);
+  if(!pl) return null;
+  var s = (pl.seasonStats && pl.seasonStats.pitching) || {};
+  var g = (pl.stats && pl.stats.pitching) || {};
+  return {
+    name: shortName(pl.person && pl.person.fullName),
+    era: s.era || "-.--",
+    whip: s.whip || "-.--",
+    w: s.wins!=null?s.wins:0,
+    l: s.losses!=null?s.losses:0,
+    k: g.strikeOuts!=null?g.strikeOuts:(s.strikeOuts||0),
+    bb: g.baseOnBalls!=null?g.baseOnBalls:(s.baseOnBalls||0),
+    ip: g.inningsPitched || ""
+  };
+}
+
+function deriveState(feed){
+  var ls = feed.liveData.linescore || {};
+  var off = ls.offense || {};
+  var def = ls.defense || {};
+  var cur = feed.liveData.plays && feed.liveData.plays.currentPlay;
+  var count = cur && cur.count ? cur.count : {balls:0,strikes:0,outs:ls.outs||0};
+  var batSide = "R";
+  try{ batSide = cur.matchup.batSide.code || "R"; }catch(e){}
+  var st = {
+    away: feed.gameData.teams.away.abbreviation || teamAbbr(feed.gameData.teams.away.name),
+    home: feed.gameData.teams.home.abbreviation || teamAbbr(feed.gameData.teams.home.name),
+    awayScore: (ls.teams&&ls.teams.away&&ls.teams.away.runs)||0,
+    homeScore: (ls.teams&&ls.teams.home&&ls.teams.home.runs)||0,
+    awayHits: (ls.teams&&ls.teams.away&&ls.teams.away.hits)||0,
+    homeHits: (ls.teams&&ls.teams.home&&ls.teams.home.hits)||0,
+    awayErr: (ls.teams&&ls.teams.away&&ls.teams.away.errors)||0,
+    homeErr: (ls.teams&&ls.teams.home&&ls.teams.home.errors)||0,
+    inning: ls.currentInning||0,
+    isTop: !!ls.isTopInning,
+    innings: ls.innings || [],
+    b: count.balls||0, s: count.strikes||0, o: count.outs||0,
+    bases: { 1: off.first?off.first.fullName:null, 2: off.second?off.second.fullName:null, 3: off.third?off.third.fullName:null },
+    batter: off.batter?off.batter.fullName:null,
+    batterId: off.batter?off.batter.id:null,
+    pitcher: def.pitcher?def.pitcher.fullName:null,
+    pitcherId: def.pitcher?def.pitcher.id:null,
+    batSide: batSide,
+    state: feed.gameData.status.abstractGameState,
+    detailed: feed.gameData.status.detailedState,
+    awayLineup: buildLineup(feed,"away"),
+    homeLineup: buildLineup(feed,"home")
+  };
+  // current pitchers per side: defense pitcher belongs to fielding team.
+  // isTop => home team fields => def.pitcher is HOME pitcher.
+  var defP = st.pitcherId ? pitcherStats(feed, st.pitcherId) : null;
+  // Find the other team's most recent pitcher from boxscore decisions is complex; show defense pitcher
+  // for the fielding side and season starter stats unknown for the other, so mirror from feed.
+  st.homePitcher = st.isTop ? defP : null;
+  st.awayPitcher = st.isTop ? null : defP;
+  // fallback: probable/last pitcher via boxscore pitchers not in filtered fields; leave null-safe
+  st.recent = [];
+  var all = feed.liveData.plays && feed.liveData.plays.allPlays;
+  if(all){
+    var done = all.filter(function(p){ return p.about && p.about.isComplete && p.result && p.result.description; });
+    st.recent = done.slice(-8).reverse().map(function(p){
+      return { desc: p.result.description, aw: p.result.awayScore, hm: p.result.homeScore, inn: p.about.inning, top: p.about.halfInning==="top" };
+    });
+  }
+  // pitch-by-pitch of current play + zone location of last pitch
+  st.pitches = [];
+  st.lastPitch = null;
+  if(cur && cur.playEvents){
+    for(var i=0;i<cur.playEvents.length;i++){
+      var ev = cur.playEvents[i];
+      if(ev.isPitch){
+        var d = ev.details || {};
+        st.pitches.push({
+          call: (d.call && d.call.description) || d.description || "",
+          type: (d.type && d.type.description) || ""
+        });
+        if(ev.pitchData && ev.pitchData.coordinates && ev.pitchData.coordinates.pX!=null){
+          st.lastPitch = {
+            px: ev.pitchData.coordinates.pX,
+            pz: ev.pitchData.coordinates.pZ,
+            szTop: ev.pitchData.strikeZoneTop || 3.5,
+            szBot: ev.pitchData.strikeZoneBottom || 1.5
+          };
+        }
+      }
+    }
+  }
+  return st;
+}
+
+// ================= DRAW HELPERS =================
+function line(x1,y1,x2,y2,w){
+  ctx.lineWidth = w||3;
+  ctx.strokeStyle = "#000";
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+}
+function rect(x,y,w,h,lw){
+  ctx.lineWidth = lw||3; ctx.strokeStyle="#000";
+  ctx.strokeRect(x,y,w,h);
+}
+function fillRect(x,y,w,h){ ctx.fillStyle="#000"; ctx.fillRect(x,y,w,h); }
+function text(str,x,y,px,bold,align,color){
+  font(px,bold);
+  ctx.fillStyle = color||"#000";
+  ctx.textAlign = align||"left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(str,x,y);
+}
+function invBand(x,y,w,h,str,px){
+  fillRect(x,y,w,h);
+  text(str, x+w/2, y+h/2+px*0.36, px, true, "center", "#fff");
+}
+function diamondBase(cx,cy,size,filled){
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(Math.PI/4);
+  var s = size/Math.SQRT2;
+  ctx.lineWidth = 4; ctx.strokeStyle="#000";
+  if(filled){ ctx.fillStyle="#000"; ctx.fillRect(-s/2,-s/2,s,s); }
+  else { ctx.fillStyle="#fff"; ctx.fillRect(-s/2,-s/2,s,s); ctx.strokeRect(-s/2,-s/2,s,s); }
+  ctx.restore();
+}
+// stick figure: total height h, anchored so feet at (x,y)
+function stickFigure(x,y,h,lw){
+  var headR = h*0.14;
+  var top = y - h;
+  ctx.lineWidth = lw || Math.max(3, h*0.05);
+  ctx.strokeStyle = "#000";
+  // head
+  ctx.beginPath(); ctx.arc(x, top+headR, headR, 0, Math.PI*2); ctx.stroke();
+  var neck = top + headR*2;
+  var hip = y - h*0.35;
+  // body
+  ctx.beginPath(); ctx.moveTo(x,neck); ctx.lineTo(x,hip); ctx.stroke();
+  // arms
+  var arm = h*0.28, ay = neck + h*0.08;
+  ctx.beginPath(); ctx.moveTo(x,ay); ctx.lineTo(x-arm*0.7, ay+arm*0.6); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x,ay); ctx.lineTo(x+arm*0.7, ay+arm*0.6); ctx.stroke();
+  // legs
+  ctx.beginPath(); ctx.moveTo(x,hip); ctx.lineTo(x-h*0.18, y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x,hip); ctx.lineTo(x+h*0.18, y); ctx.stroke();
+}
+// batter with bat, side: "L" batter stands right of plate (facing left) etc.
+function batterFigure(x,y,h,side){
+  stickFigure(x,y,h);
+  // bat: angled line from shoulder up
+  var neck = y - h + h*0.28;
+  ctx.lineWidth = Math.max(4, h*0.06);
+  ctx.beginPath();
+  if(side==="L"){ ctx.moveTo(x+h*0.1, neck); ctx.lineTo(x+h*0.45, neck-h*0.4); }
+  else { ctx.moveTo(x-h*0.1, neck); ctx.lineTo(x-h*0.45, neck-h*0.4); }
+  ctx.stroke();
+}
+
+// ================= LAYOUT CONSTANTS =================
+// margins / frame
+var M1 = 14, M2 = 20;
+// Portrait layout: 1860 wide x 2480 tall
+// Top: header + score + linescore grid
+// Middle: LEFT panel | diamond | RIGHT panel  (3-column)
+// Bottom: recent plays + scoreboard
+var PANEL_W = 540;               // left/right lineup panels
+var PANEL_X_L = 30;
+var PANEL_X_R = CW - 30 - PANEL_W;
+var PANEL_Y = 520;               // panels start below header/score/grid
+var CENTER_X = CW/2;
+
+// diamond geometry — portrait coords, diamond in center column
+// center column: x from PANEL_X_L+PANEL_W+10 to PANEL_X_R-10
+var D_HOME = { x: CENTER_X, y: 1620 };
+var D_2B   = { x: CENTER_X, y: 980 };
+var D_1B   = { x: CENTER_X+280, y: 1300 };
+var D_3B   = { x: CENTER_X-280, y: 1300 };
+var MOUND  = { x: CENTER_X, y: (1620+980)/2 };
+
+// ================= RENDER =================
+function render(){
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0,0,CW,CH);
+
+  // double border frame
+  rect(M1, M1, CW-2*M1, CH-2*M1, 4);
+  rect(M2+6, M2+6, CW-2*(M2+6), CH-2*(M2+6), 3);
+
+  var st = lastFeed ? deriveState(lastFeed) : null;
+
+  // ---- top bar ----
+  text("MLB GAMEDAY", 60, 108, 64, true);
+  var statusTxt = "WAITING";
+  if(st){
+    statusTxt = st.state==="Live" ? "LIVE" : (st.state==="Final" ? "FINAL" : (st.detailed||st.state).toUpperCase());
+  }
+  text(statusTxt, CW-60, 108, 56, true, "right");
+  if(errNote) text(errNote, CW-60, 160, 26, false, "right");
+
+  if(!st){
+    text("Waiting for game data...", CENTER_X, CH/2, 48, true, "center");
+    drawButtons();
+    return;
+  }
+
+  // ---- score row (y~135) ----
+  var sy = 210;
+  text(":", CENTER_X, sy, 96, true, "center");
+  text(String(st.awayScore), CENTER_X-90, sy, 96, true, "right");
+  text(String(st.homeScore), CENTER_X+90, sy, 96, true, "left");
+  font(96,true);
+  var asw = ctx.measureText(String(st.awayScore)).width;
+  var hsw = ctx.measureText(String(st.homeScore)).width;
+  text(st.away, CENTER_X-90-asw-40, sy, 82, true, "right");
+  text(st.home, CENTER_X+90+hsw+40, sy, 82, true, "left");
+
+  // ---- inning box score grid ----
+  drawLinescoreGrid(st, 265);
+
+  // ---- left panel: away lineup + pitcher ----
+  var lineupH = 56 + 40 + 9*86 + 14;
+  drawLineupPanel(PANEL_X_L, PANEL_Y, st.away, st.awayLineup, st.isTop ? st.batterId : null);
+  drawPitcherBox(PANEL_X_L, PANEL_Y + lineupH + 16, st.away + " PITCHER", st.awayPitcher);
+
+  // ---- right panel: home lineup + pitcher ----
+  drawLineupPanel(PANEL_X_R, PANEL_Y, st.home, st.homeLineup, !st.isTop ? st.batterId : null);
+  drawPitcherBox(PANEL_X_R, PANEL_Y + lineupH + 16, st.home + " PITCHER", st.homePitcher);
+
+  // ---- center: diamond ----
+  drawDiamond(st);
+
+  // ---- recent plays ----
+  drawRecentPlays(st);
+
+    drawScoreboard();
+  drawButtons();
+}
+
+// ---- all games today, thin bottom strip ----
+function drawScoreboard(){
+  if(!lastGames.length) return;
+  var y = CH - 74;
+  var items = lastGames.map(function(g){
+    var a = teamAbbr(g.teams.away.team.name), h = teamAbbr(g.teams.home.team.name);
+    var as = g.teams.away.score!=null?g.teams.away.score:"-";
+    var hs = g.teams.home.score!=null?g.teams.home.score:"-";
+    var stt = "";
+    if(g.status.abstractGameState==="Live" && g.linescore) stt = (g.linescore.isTopInning?"T":"B")+(g.linescore.currentInning||"");
+    else if(g.status.abstractGameState==="Final") stt = "F";
+    return a+" "+as+"-"+hs+" "+h+(stt?" "+stt:"");
+  });
+  var s = items.join("   |   ");
+  font(24,false);
+  while(ctx.measureText(s).width > CW-720 && items.length>1){ items.pop(); s = items.join("   |   "); }
+  text(s, CENTER_X, y, 24, false, "center");
+}
+
+function drawButtons(){
+  invBand(44, CH-110, 200, 70, "EXIT", 34);
+  invBand(CW-44-280, CH-110, 280, 70, "> REPLAY", 34);
+}
+
+// ---- linescore grid ----
+function drawLinescoreGrid(st, y){
+  var cols = 9;
+  var n = Math.max(9, st.innings.length);
+  if(n>9) cols = n;
+  var cellW = 64, labW = 110, rheW = 64;
+  var gridW = labW + cols*cellW + 3*rheW;
+  var x0 = CENTER_X - gridW/2;
+  var rowH = 46;
+
+  // header row: INN numbers
+  font(30,true); ctx.textAlign="center"; ctx.fillStyle="#000";
+  // INN row (bottom label per spec: AWAY, HOME, INN — draw header on top instead for readability)
+  var rows = [
+    { lab:"INN", vals:null },
+    { lab: st.away, side:"away" },
+    { lab: st.home, side:"home" }
+  ];
+  for(var r=0;r<3;r++){
+    var y0 = y + r*rowH;
+    text(rows[r].lab, x0+labW/2, y0+rowH-13, 30, true, "center");
+    for(var c=0;c<cols;c++){
+      var cx = x0+labW+c*cellW+cellW/2;
+      var v;
+      if(r===0){ v = String(c+1); }
+      else {
+        var inn = st.innings[c];
+        v = inn && inn[rows[r].side] && inn[rows[r].side].runs!=null ? String(inn[rows[r].side].runs) : "-";
+      }
+      text(v, cx, y0+rowH-13, 30, r===0, "center");
+    }
+    // R H E
+    var rheVals;
+    if(r===0) rheVals=["R","H","E"];
+    else if(r===1) rheVals=[st.awayScore, st.awayHits, st.awayErr];
+    else rheVals=[st.homeScore, st.homeHits, st.homeErr];
+    for(var k=0;k<3;k++){
+      text(String(rheVals[k]), x0+labW+cols*cellW+k*rheW+rheW/2, y0+rowH-13, 30, true, "center");
+    }
+  }
+  // grid lines
+  ctx.lineWidth=2;
+  rect(x0, y, gridW, rowH*3, 3);
+  line(x0, y+rowH, x0+gridW, y+rowH, 2);
+  line(x0, y+rowH*2, x0+gridW, y+rowH*2, 2);
+  line(x0+labW, y, x0+labW, y+rowH*3, 2);
+  line(x0+labW+cols*cellW, y, x0+labW+cols*cellW, y+rowH*3, 3);
+
+  // inning state to right of grid
+  var innTxt = st.state==="Final" ? "FINAL" : (st.inning>0 ? (st.isTop?"TOP ":"BOT ")+st.inning : "PRE");
+  text(innTxt, x0+gridW+40, y+58, 40, true, "left");
+  text("B"+st.b+" S"+st.s+" O"+st.o, x0+gridW+40, y+112, 34, true, "left");
+}
+
+// ---- lineup panel ----
+function drawLineupPanel(x, y, abbr, lineup, activeBatterId){
+  var w = PANEL_W;
+  var hdrH = 56;
+  var rowH = 86;
+  var h = hdrH + 40 + 9*rowH + 14;
+  rect(x, y, w, h, 3);
+  invBand(x, y, w, hdrH, abbr + " LINEUP", 36);
+  // column headers
+  text("#", x+18, y+hdrH+32, 26, true);
+  text("BATTER", x+70, y+hdrH+32, 26, true);
+  text("AVG", x+w-230, y+hdrH+32, 26, true);
+  text("TODAY", x+w-130, y+hdrH+32, 26, true);
+  var ry = y+hdrH+44;
+  for(var i=0;i<9;i++){
+    var b = lineup[i];
+    var top = ry + i*rowH;
+    var active = b && activeBatterId && b.id===activeBatterId;
+    if(active){
+      ctx.fillStyle="#000";
+      ctx.fillRect(x+4, top, w-8, rowH-4);
+    }
+    var col = active ? "#fff" : "#000";
+    if(b){
+      text(String(i+1), x+18, top+36, 30, true, "left", col);
+      text(b.name.substring(0,16), x+70, top+36, 30, true, "left", col);
+      text(b.avg, x+w-230, top+36, 28, false, "left", col);
+      text(b.pos, x+w-100, top+36, 28, false, "left", col);
+      text(b.h+"/"+b.ab+"  "+b.rbi+" RBI  "+b.hr+" HR", x+70, top+72, 26, false, "left", col);
+    } else {
+      text(String(i+1), x+18, top+36, 30, true, "left", col);
+      text("---", x+70, top+36, 30, false, "left", col);
+    }
+  }
+}
+
+// ---- pitcher box ----
+function drawPitcherBox(x, y, label, p){
+  var w = PANEL_W, h = 200;
+  rect(x, y, w, h, 3);
+  invBand(x, y, w, 50, label, 32);
+  if(p){
+    text(p.name, x+20, y+108, 42, true);
+    text("ERA "+p.era+"  WHIP "+p.whip, x+20, y+150, 28);
+    text("W-L "+p.w+"-"+p.l+"  K "+p.k+"  BB "+p.bb+(p.ip?("  IP "+p.ip):""), x+20, y+184, 28);
+  } else {
+    text("---", x+20, y+108, 42, true);
+  }
+}
+
+// ---- diamond ----
+function drawDiamond(st){
+  text("GAME DIAMOND", CENTER_X, PANEL_Y+30, 34, true, "center");
+
+  // base paths
+  line(D_HOME.x, D_HOME.y, D_1B.x, D_1B.y, 5);
+  line(D_1B.x, D_1B.y, D_2B.x, D_2B.y, 5);
+  line(D_2B.x, D_2B.y, D_3B.x, D_3B.y, 5);
+  line(D_3B.x, D_3B.y, D_HOME.x, D_HOME.y, 5);
+
+  // bases
+  diamondBase(D_1B.x, D_1B.y, 54, !!st.bases[1]);
+  diamondBase(D_2B.x, D_2B.y, 54, !!st.bases[2]);
+  diamondBase(D_3B.x, D_3B.y, 54, !!st.bases[3]);
+  diamondBase(D_HOME.x, D_HOME.y, 54, false);
+
+  // pitcher's mound
+  ctx.fillStyle="#000";
+  ctx.beginPath(); ctx.arc(MOUND.x, MOUND.y, 22, 0, Math.PI*2); ctx.fill();
+
+  // fielders (infield)
+  var IF = [
+    {x: D_1B.x+70,  y: D_1B.y-70},   // 1B
+    {x: CENTER_X+170, y: D_2B.y+90}, // 2B
+    {x: CENTER_X-170, y: D_2B.y+90}, // SS
+    {x: D_3B.x-70,  y: D_3B.y-70}    // 3B
+  ];
+  IF.forEach(function(f){ stickFigure(f.x, f.y, 60, 4); });
+  // outfielders
+  var OF = [
+    {x: CENTER_X-420, y: D_2B.y-140}, // LF
+    {x: CENTER_X,     y: D_2B.y-200}, // CF
+    {x: CENTER_X+420, y: D_2B.y-140}  // RF
+  ];
+  OF.forEach(function(f){ stickFigure(f.x, f.y, 50, 3); });
+
+  // runners on base + name labels
+  if(st.bases[1]){
+    stickFigure(D_1B.x+80, D_1B.y+10, 80);
+    text(lastName(st.bases[1]), D_1B.x+80, D_1B.y+52, 26, true, "center");
+  }
+  if(st.bases[2]){
+    stickFigure(D_2B.x, D_2B.y-40, 80);
+    text(lastName(st.bases[2]), D_2B.x, D_2B.y+3+40, 26, true, "center");
+  }
+  if(st.bases[3]){
+    stickFigure(D_3B.x-80, D_3B.y+10, 80);
+    text(lastName(st.bases[3]), D_3B.x-80, D_3B.y+52, 26, true, "center");
+  }
+
+  // batter at plate
+  if(st.batter && st.state==="Live"){
+    var bx = st.batSide==="L" ? D_HOME.x+70 : D_HOME.x-70;
+    batterFigure(bx, D_HOME.y+20, 80, st.batSide);
+  }
+
+  // pitcher name below mound
+  if(st.pitcher) text(lastName(st.pitcher), MOUND.x, MOUND.y+66, 26, true, "center");
+
+  // AT BAT line below home
+  var abY = D_HOME.y + 78;
+  if(st.batter){
+    text(st.batSide+" BAT "+lastName(st.batter)+" VS "+(st.pitcher?lastName(st.pitcher):"---"), CENTER_X, abY, 32, true, "center");
+  } else {
+    text(st.detailed||"", CENTER_X, abY, 32, true, "center");
+  }
+
+  // B/S/O count band (inverted)
+  var bandW = 380, bandH = 56;
+  invBand(CENTER_X-bandW/2, abY+18, bandW, bandH, "B"+st.b+"  S"+st.s+"  O"+st.o, 38);
+
+  // pitch clock
+  if(st.state==="Live" && clockRunning){
+    text(":"+pad2(Math.max(0,pitchClock)), CENTER_X, abY+18+bandH+48, 44, true, "center");
+  }
+}
+
+// ---- strike zone + pitch log (batting side) ----
+function drawPitchPanel(st){
+  // batting side: away bats in top => LEFT side; home bats bottom => RIGHT side.
+  var side = st.isTop ? "L" : "R";
+  var lineupH2 = 56 + 40 + 9*86 + 14;
+  var px = side==="L" ? PANEL_X_L + 30 : PANEL_X_R + PANEL_W - 30 - 180;
+  var py = PANEL_Y + lineupH2 + 220;
+
+  // strike zone: 3x4 grid
+  var zw = 180, zh = 240;
+  text("ZONE", px+zw/2, py-10, 26, true, "center");
+  rect(px, py, zw, zh, 4);
+  for(var i=1;i<3;i++) line(px+i*zw/3, py, px+i*zw/3, py+zh, 2);
+  for(var j=1;j<4;j++) line(px, py+j*zh/4, px+zw, py+j*zh/4, 2);
+  // pitch dot
+  if(st.lastPitch){
+    var p = st.lastPitch;
+    // pX in feet, zone half-width ~0.83ft; pZ maps szBot..szTop into zone
+    var nx = (p.px/0.83+1)/2;              // 0..1 left-right (catcher view)
+    var nz = (p.pz - p.szBot)/((p.szTop-p.szBot)||1);
+    nx = Math.max(-0.2, Math.min(1.2, nx));
+    nz = Math.max(-0.2, Math.min(1.2, nz));
+    var dx = px + nx*zw;
+    var dy = py + (1-nz)*zh;
+    ctx.fillStyle="#000";
+    ctx.beginPath(); ctx.arc(dx,dy,12,0,Math.PI*2); ctx.fill();
+  }
+
+  // pitch-by-pitch log next to zone
+  var lx = side==="L" ? px + zw + 30 : px - 30;
+  var align = side==="L" ? "left" : "right";
+  text("PITCHES", lx, py+16, 26, true, align);
+  var n = st.pitches.length;
+  var show = st.pitches.slice(-6);
+  for(var k=0;k<show.length;k++){
+    var num = n - show.length + k + 1;
+    var s = num+". "+show[k].call.substring(0,18)+(show[k].type?" ("+show[k].type.substring(0,10)+")":"");
+    text(s, lx, py+52+k*34, 24, false, align);
+  }
+}
+
+// ---- recent plays ----
+function drawRecentPlays(st){
+  var w = 1060, x = CENTER_X - w/2;
+  var y = D_HOME.y + 180;
+  var hdrH = 50, rowH = 40;
+  var rows = Math.min(8, st.recent.length);
+  var h = hdrH + Math.max(1,rows)*rowH + 12;
+  if(y + h > CH - 110) h = CH - 110 - y;
+  rect(x, y, w, h, 3);
+  invBand(x, y, w, hdrH, "RECENT PLAYS", 32);
+  if(!rows){
+    text("No plays yet.", x+20, y+hdrH+34, 26);
+    return;
+  }
+  for(var i=0;i<rows;i++){
+    var ry = y+hdrH+30+i*rowH;
+    if(ry > y+h-10) break;
+    var p = st.recent[i];
+    var tag = (p.top?"T":"B")+p.inn;
+    var score = (p.aw!=null&&p.hm!=null) ? (p.aw+"-"+p.hm) : "";
+    var desc = p.desc.length>62 ? p.desc.substring(0,60)+".." : p.desc;
+    text(tag, x+16, ry, 24, true);
+    text(desc, x+90, ry, 24);
+    text(score, x+w-20, ry, 24, true, "right");
+  }
+}
+
+// ================= PITCH CLOCK =================
+setInterval(function(){
+  if(clockRunning && pitchClock>0){ pitchClock--; render(); }
+},1000);
+function resetPitchClock(runnersOn){
+  pitchClock = runnersOn ? 15 : 20;
+  clockRunning = true;
+}
+
+// ================= POLLING =================
+var currentInterval = 30000;
+var prevCount = null;
+function schedulePoll(ms){
+  if(pollTimer) clearTimeout(pollTimer);
+  currentInterval = ms;
+  pollTimer = setTimeout(poll, ms);
+}
+function poll(){
+  fetch(schedUrl()).then(function(r){ return r.json(); }).then(function(sched){
+    var games = [];
+    (sched.dates||[]).forEach(function(d){ games = games.concat(d.games||[]); });
+    var today = dstr(new Date());
+    var todays = [];
+    (sched.dates||[]).forEach(function(d){ if(d.date===today) todays = d.games||[]; });
+    lastGames = todays.length?todays:games;
+    var g = pickGame(games);
+    if(!g){ errNote = "no games found"; render(); schedulePoll(300000); return; }
+    gamePk = g.gamePk;
+    var state = g.status.abstractGameState;
+    return fetch(feedUrl(gamePk)).then(function(r){ return r.json(); }).then(function(feed){
+      lastFeed = feed;
+      errNote = "";
+      var st = deriveState(feed);
+      var runnersOn = !!(st.bases[1]||st.bases[2]||st.bases[3]);
+      var c = {b:st.b,s:st.s,o:st.o,id:st.batterId};
+      if(st.state==="Live" && (!prevCount || prevCount.b!==c.b || prevCount.s!==c.s || prevCount.o!==c.o || prevCount.id!==c.id)){
+        resetPitchClock(runnersOn);
+      }
+      if(st.state!=="Live") clockRunning = false;
+      prevCount = c;
+      render();
+      var ms = state==="Live" ? 30000 : (state==="Preview" ? 60000 : 300000);
+      schedulePoll(ms);
+    });
+  }).catch(function(e){
+    errNote = "fetch error - retrying";
+    render();
+    schedulePoll(Math.min(currentInterval||30000, 30000));
+  });
+}
+
+render();
+poll();
+})();
+</script>
+</body>
+</html>

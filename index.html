@@ -460,6 +460,17 @@ function text(str,x,y,px,bold,align,color){
   ctx.textBaseline = "alphabetic";
   ctx.fillText(str,x,y);
 }
+// Draw str at (x,y) shrinking font until it fits within maxW pixels (min font px minPx).
+function fitText(str,x,y,px,bold,align,color,maxW,minPx){
+  var sz = px;
+  minPx = minPx || Math.round(px*0.6);
+  font(sz, bold);
+  while(ctx.measureText(str).width > maxW && sz > minPx){ sz--; font(sz, bold); }
+  ctx.fillStyle = color||"#000";
+  ctx.textAlign = align||"left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(str,x,y);
+}
 function invBand(x,y,w,h,str,px){
   fillRect(x,y,w,h);
   text(str, x+w/2, y+h/2+px*0.36, px, true, "center", "#fff");
@@ -556,7 +567,7 @@ var M1 = 14, M2 = 20;
 // Top: header + score + linescore grid
 // Middle: LEFT panel | diamond | RIGHT panel  (3-column)
 // Bottom: recent plays + scoreboard
-var PANEL_W = 540;               // left/right lineup panels
+var PANEL_W = 620;               // left/right lineup panels
 var PANEL_X_L = 30;
 var PANEL_X_R = CW - 30 - PANEL_W;
 var PANEL_Y = 440;               // panels start below header/score/grid
@@ -1542,10 +1553,15 @@ function drawLineupPanel(x, y, abbr, lineup, activeBatterId){
   var h = hdrH + 44 + 9*rowH + 14;
   rect(x, y, w, h, 3);
   invBand(x, y, w, hdrH, abbr + " LINEUP", 40);
-  text("#", x+18, y+hdrH+34, 32, true);
-  text("BATTER", x+74, y+hdrH+34, 32, true);
-  text("AVG", x+w-220, y+hdrH+34, 32, true);
-  text("TODAY", x+w-110, y+hdrH+34, 32, true);
+  // Column anchors: # | NAME (left-aligned, clipped) | AVG (right-aligned) | POS (right-aligned)
+  var COL_NUM  = x+18;
+  var COL_NAME = x+60;      // name left edge
+  var COL_AVG  = x+w-130;   // AVG right edge
+  var COL_POS  = x+w-14;    // POS right edge
+  text("#",     COL_NUM,       y+hdrH+34, 32, true);
+  text("BATTER", COL_NAME,     y+hdrH+34, 32, true);
+  text("AVG",    COL_AVG-4,    y+hdrH+34, 32, true, "right");
+  text("POS",    COL_POS,      y+hdrH+34, 32, true, "right");
   var ry = y+hdrH+48;
   for(var i=0;i<9;i++){
     var b = lineup[i];
@@ -1554,14 +1570,16 @@ function drawLineupPanel(x, y, abbr, lineup, activeBatterId){
     if(active){ ctx.fillStyle="#000"; ctx.fillRect(x+4, top, w-8, rowH-4); }
     var col = active ? "#fff" : "#000";
     if(b){
-      text(String(i+1), x+18, top+44, 42, true, "left", col);
-      text(b.name.substring(0,14), x+74, top+44, 42, true, "left", col);
-      text(b.avg, x+w-220, top+44, 32, false, "left", col);
-      text(b.pos, x+w-100, top+44, 32, false, "left", col);
-      text(b.h+"/"+b.ab+"  "+b.rbi+" RBI  "+b.hr+" HR", x+74, top+82, 30, false, "left", col);
+      text(String(i+1), COL_NUM, top+44, 42, true, "left", col);
+      // Name: clip to keep clear of AVG column
+      var nameMaxW = COL_AVG - 50 - COL_NAME;
+      fitText(lastName(b.name), COL_NAME, top+44, 42, true, "left", col, nameMaxW, 28);
+      text(b.avg,  COL_AVG, top+44, 32, false, "right", col);
+      text(b.pos,  COL_POS, top+44, 32, false, "right", col);
+      text(b.h+"/"+b.ab+"  "+b.rbi+" RBI  "+b.hr+" HR", COL_NAME, top+82, 30, false, "left", col);
     } else {
-      text(String(i+1), x+18, top+44, 42, true, "left", col);
-      text("---", x+74, top+44, 42, false, "left", col);
+      text(String(i+1), COL_NUM,  top+44, 42, true, "left", col);
+      text("---",        COL_NAME, top+44, 42, false, "left", col);
     }
   }
 }
@@ -1572,7 +1590,7 @@ function drawPitcherBox(x, y, label, p){
   rect(x, y, w, h, 3);
   invBand(x, y, w, 50, label, 32);
   if(p){
-    text(p.name, x+20, y+112, 52, true);
+    fitText(p.name, x+20, y+112, 52, true, "left", "#000", w-40, 32);
     text("ERA "+p.era+"  WHIP "+p.whip, x+20, y+154, 32);
     text("W-L "+p.w+"-"+p.l+"  K "+p.k+"  BB "+p.bb+(p.ip?("  IP "+p.ip):""), x+20, y+190, 32);
   } else {
@@ -1776,12 +1794,53 @@ function resetPitchClock(runnersOn){
 }
 
 // ================= POLLING =================
-var currentInterval = 30000;
+// During a live game: poll the feed directly every 5s (no sched re-fetch overhead).
+// When idle (nothing changed 5 polls in a row) back off to 15s. Snap back to 5s on any change.
+// Pre-game: poll sched every 60s. Post-game/no game: 5 min.
+var LIVE_POLL_FAST = 5000;   // 5s when active
+var LIVE_POLL_IDLE = 15000;  // 15s after 5 unchanged polls
+var LIVE_IDLE_LIMIT = 5;     // polls before backing off
+var currentInterval = LIVE_POLL_FAST;
 var prevCount = null;
+var idlePolls = 0;
 function schedulePoll(ms){
   if(pollTimer) clearTimeout(pollTimer);
   currentInterval = ms;
   pollTimer = setTimeout(poll, ms);
+}
+// Fast path: just re-fetch the live feed for the known gamePk — skip the schedule round-trip.
+function pollFeed(){
+  if(mode!=="live" || !gamePk){ poll(); return; }
+  fetch(feedUrl(gamePk)).then(function(r){ return r.json(); }).then(function(feed){
+    lastFeed = feed;
+    errNote = "";
+    var st = deriveState(feed);
+    var gameState = (feed.gameData&&feed.gameData.status&&feed.gameData.status.abstractGameState)||"";
+    var runnersOn = !!(st.bases[1]||st.bases[2]||st.bases[3]);
+    var c = {b:st.b,s:st.s,o:st.o,id:st.batterId};
+    var changed = !prevCount || prevCount.b!==c.b || prevCount.s!==c.s || prevCount.o!==c.o || prevCount.id!==c.id;
+    if(st.state==="Live" && changed){
+      idlePolls = 0;
+      resetPitchClock(runnersOn);
+      if(prevCount) animateBall();
+    } else if(st.state==="Live"){
+      idlePolls++;
+    }
+    if(st.state!=="Live") clockRunning = false;
+    prevCount = c;
+    if(mode==="live") render();
+    if(gameState==="Final"){
+      // Game ended — switch to slow sched poll
+      poll();
+    } else {
+      var ms = (changed || idlePolls < LIVE_IDLE_LIMIT) ? LIVE_POLL_FAST : LIVE_POLL_IDLE;
+      schedulePoll(ms);
+    }
+  }).catch(function(e){
+    errNote = "fetch error - retrying";
+    render();
+    schedulePoll(LIVE_POLL_FAST);
+  });
 }
 function poll(){
   if(mode!=="live"){ return; }
@@ -1796,26 +1855,25 @@ function poll(){
     if(!g){ errNote = "no games found"; render(); schedulePoll(300000); return; }
     gamePk = g.gamePk;
     var state = g.status.abstractGameState;
+    if(state==="Live"){
+      // Hand off to fast feed-only poller
+      pollFeed();
+      return;
+    }
     return fetch(feedUrl(gamePk)).then(function(r){ return r.json(); }).then(function(feed){
       lastFeed = feed;
       errNote = "";
       var st = deriveState(feed);
-      var runnersOn = !!(st.bases[1]||st.bases[2]||st.bases[3]);
-      var c = {b:st.b,s:st.s,o:st.o,id:st.batterId};
-      if(st.state==="Live" && (!prevCount || prevCount.b!==c.b || prevCount.s!==c.s || prevCount.o!==c.o || prevCount.id!==c.id)){
-        resetPitchClock(runnersOn);
-        if(prevCount) animateBall(); // new pitch detected -> ball in flight
-      }
       if(st.state!=="Live") clockRunning = false;
-      prevCount = c;
+      prevCount = null; idlePolls = 0;
       if(mode==="live") render();
-      var ms = state==="Live" ? 30000 : (state==="Preview" ? 60000 : 300000);
+      var ms = state==="Preview" ? 60000 : 300000;
       schedulePoll(ms);
     });
   }).catch(function(e){
     errNote = "fetch error - retrying";
     render();
-    schedulePoll(Math.min(currentInterval||30000, 30000));
+    schedulePoll(30000);
   });
 }
 

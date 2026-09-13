@@ -405,8 +405,8 @@ function deriveState(feed){
   var defP = st.pitcherId ? pitcherStats(feed, st.pitcherId) : null;
   // Find the other team's most recent pitcher from boxscore decisions is complex; show defense pitcher
   // for the fielding side and season starter stats unknown for the other, so mirror from feed.
-  st.homePitcher = st.isTop ? defP : null;
-  st.awayPitcher = st.isTop ? null : defP;
+  st.homePitcher = st.isTop ? null : defP;
+  st.awayPitcher = st.isTop ? defP : null;
   // fallback: probable/last pitcher via boxscore pitchers not in filtered fields; leave null-safe
   st.recent = [];
   var all = feed.liveData.plays && feed.liveData.plays.allPlays;
@@ -1435,8 +1435,8 @@ function deriveReplayState(){
     homeLineup: buildLineup(feed,"home")
   };
   var defP = st.pitcherId ? pitcherStats(feed, st.pitcherId) : null;
-  st.homePitcher = st.isTop ? defP : null;
-  st.awayPitcher = st.isTop ? null : defP;
+  st.homePitcher = st.isTop ? null : defP;
+  st.awayPitcher = st.isTop ? defP : null;
 
   // recent plays: completed plays up to and including current
   // Only show plays that have COMPLETED before the current one — not the play being pitched now

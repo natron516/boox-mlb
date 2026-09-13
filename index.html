@@ -47,7 +47,7 @@ var lastGames = [];
 var errNote = "";
 
 // ================= REPLAY SYSTEM STATE =================
-var mode = "live"; // live | picker | searching | replay
+var mode = "live"; // live | picker | searching | replay | minigame
 // Each entry: {id, c, from, to}  (to=9999 means still active)
 var ALL_TEAMS = [
   {id:108, c:"LAA", from:1961, to:9999, names:[
@@ -637,6 +637,7 @@ function render(){
 
   if(mode==="picker"){ renderPicker(); return; }
   if(mode==="searching"){ renderSearching(); return; }
+  if(mode==="minigame"){ renderMiniGame(); return; }
 
   var replay = (mode==="replay");
   var st = replay ? deriveReplayState() : (lastFeed ? deriveState(lastFeed) : null);
@@ -726,6 +727,9 @@ function drawButtons(){
     return;
   }
   invBand(44, by, 200, 70, "EXIT", 34);
+  var gbx = CW-44-280-24-260;
+  invBand(gbx, by, 260, 70, "* GAMES", 34);
+  addHit(gbx, by, 260, 70, function(){ startMiniGame(); });
   invBand(CW-44-280, by, 280, 70, "> REPLAY", 34);
   addHit(CW-44-280, by, 280, 70, openPicker);
 }
@@ -820,9 +824,11 @@ function renderPicker(){
         drawTeamName(teamNameForYear(bt,pickYear), bbx+btnW/2, bby+btnH/2, btnW-16, "#000");
         (function(id){ addHit(bbx,bby,btnW,btnH,function(){ pickB=id; findRetroGameAndStart(); }); })(bt.id);
       } else {
-        // greyed out — lighter, no hit zone
-        ctx.globalAlpha = 0.3;
-        rect(bbx,bby,btnW,btnH,2);
+        // clearly unavailable: solid gray fill + faint text
+        ctx.fillStyle = "#bbb";
+        ctx.fillRect(bbx,bby,btnW,btnH);
+        ctx.lineWidth = 2; ctx.strokeStyle = "#bbb"; ctx.strokeRect(bbx,bby,btnW,btnH);
+        ctx.globalAlpha = 0.35;
         drawTeamName(teamNameForYear(bt,pickYear), bbx+btnW/2, bby+btnH/2, btnW-16, "#000");
         ctx.globalAlpha = 1.0;
       }
@@ -848,8 +854,11 @@ function renderPicker(){
         drawTeamName(teamNameForYear(mt,pickYear), mbx+btnW/2, mby+btnH/2, btnW-16, "#000");
         (function(id){ addHit(mbx,mby,btnW,btnH,function(){ pickB=id; render(); }); })(mt.id);
       } else {
-        ctx.globalAlpha = 0.3;
-        rect(mbx,mby,btnW,btnH,2);
+        // clearly unavailable: solid gray fill + faint text
+        ctx.fillStyle = "#bbb";
+        ctx.fillRect(mbx,mby,btnW,btnH);
+        ctx.lineWidth = 2; ctx.strokeStyle = "#bbb"; ctx.strokeRect(mbx,mby,btnW,btnH);
+        ctx.globalAlpha = 0.35;
         drawTeamName(teamNameForYear(mt,pickYear), mbx+btnW/2, mby+btnH/2, btnW-16, "#000");
         ctx.globalAlpha = 1.0;
       }
@@ -1863,6 +1872,393 @@ function resetPitchClock(runnersOn){
   clockRunning = true;
 }
 
+// ================= MINI-GAMES =================
+// Between-innings arcade. mode "minigame". Games: math | shell | cap | stat.
+// Auto-triggers from pollFeed() when linescore.inningState transitions to "Middle"/"End".
+var MG_TYPES = ["math","shell","cap","stat"];
+var mg = null;           // active mini-game state
+var mgTimer = null;      // single pending timeout for the active game
+var prevInningState = null;
+var mgAutoPending = false;
+
+function mgSchedule(fn, ms){ if(mgTimer) clearTimeout(mgTimer); mgTimer = setTimeout(fn, ms); }
+function mgClear(){ if(mgTimer){ clearTimeout(mgTimer); mgTimer = null; } }
+function mgShuffle(a){
+  for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i];a[i]=a[j];a[j]=t; }
+  return a;
+}
+
+function startMiniGame(type){
+  mgClear();
+  if(!type) type = MG_TYPES[Math.floor(Math.random()*MG_TYPES.length)];
+  mode = "minigame";
+  mg = { type:type, round:0, score:0, streak:0, phase:"play", flash:null, done:false };
+  if(type==="math") mgMathNext();
+  else if(type==="shell") mgShellStart();
+  else if(type==="cap") mgCapStart();
+  else mgStatStart();
+  render();
+}
+function exitMiniGame(){
+  mgClear();
+  mg = null;
+  mode = "live";
+  render();
+}
+
+// ---- 1) MATH FLASH (5 problems, 3rd grade) ----
+function mgMathNext(){
+  mg.round++;
+  if(mg.round > 5){ mg.done = true; render(); return; }
+  var op = ["+","-","x"][Math.floor(Math.random()*3)], a, b, ans;
+  if(op==="+"){ a=2+Math.floor(Math.random()*18); b=2+Math.floor(Math.random()*18); ans=a+b; }
+  else if(op==="-"){ a=5+Math.floor(Math.random()*20); b=1+Math.floor(Math.random()*(a-1)); ans=a-b; }
+  else { a=2+Math.floor(Math.random()*9); b=2+Math.floor(Math.random()*9); ans=a*b; }
+  var choices=[ans], guard=0;
+  while(choices.length<4 && guard<300){
+    guard++;
+    var w = ans + (Math.floor(Math.random()*11)-5); // plausible: within +/-5
+    if(w!==ans && w>=0 && choices.indexOf(w)<0) choices.push(w);
+  }
+  mgShuffle(choices);
+  mg.q = {a:a, b:b, op:op, ans:ans, choices:choices};
+  mg.phase = "play"; mg.flash = null;
+}
+function mgMathPick(v){
+  if(mg.phase!=="play") return;
+  var ok = (v===mg.q.ans);
+  if(ok){ mg.score++; mg.streak++; } else { mg.streak = 0; }
+  mg.flash = {ok:ok, v:v};
+  mg.phase = "reveal";
+  render();
+  mgSchedule(function(){ mgMathNext(); render(); }, 1300);
+}
+function mgRenderMath(){
+  text("PROBLEM "+mg.round+" OF 5", CENTER_X, 380, 44, true, "center");
+  var q = mg.q;
+  text(q.a+" "+(q.op==="x"?"\u00d7":q.op)+" "+q.b+" = ?", CENTER_X, 640, 150, true, "center");
+  var bw=760, bh=260, gap=60;
+  var xs=[CENTER_X-bw-gap/2, CENTER_X+gap/2], ys=[820, 820+bh+gap];
+  for(var i=0;i<4;i++){
+    var bx=xs[i%2], byy=ys[Math.floor(i/2)];
+    var v=q.choices[i];
+    if(mg.phase==="reveal"){
+      if(v===q.ans){ invBand(bx,byy,bw,bh,String(v),96); }
+      else if(mg.flash && mg.flash.v===v && !mg.flash.ok){
+        rect(bx,byy,bw,bh,6);
+        text(String(v), bx+bw/2, byy+bh/2+34, 96, true, "center", "#c00");
+        line(bx+40,byy+40,bx+bw-40,byy+bh-40,8);
+        line(bx+bw-40,byy+40,bx+40,byy+bh-40,8);
+      } else {
+        rect(bx,byy,bw,bh,3);
+        text(String(v), bx+bw/2, byy+bh/2+34, 96, true, "center");
+      }
+    } else {
+      rect(bx,byy,bw,bh,5);
+      text(String(v), bx+bw/2, byy+bh/2+34, 96, true, "center");
+      (function(val){ addHit(bx,byy,bw,bh,function(){ mgMathPick(val); }); })(v);
+    }
+  }
+  if(mg.phase==="reveal"){
+    var ok = mg.flash && mg.flash.ok;
+    text(ok?"CORRECT!":("WRONG - ANSWER IS "+q.ans), CENTER_X, 1620, 72, true, "center", ok?"#0a0":"#c00");
+  }
+}
+
+// ---- 2) SHELL GAME (3 rounds) ----
+function mgShellStart(){
+  mg.slots = [CENTER_X-620, CENTER_X, CENTER_X+620];
+  mg.cups = [0,1,2];               // cups[i] = slot index of cup i
+  mg.ball = Math.floor(Math.random()*3); // cup index hiding the ball
+  mg.phase = "show";
+  mg.anim = null; mg.flash = null;
+  render();
+  mgSchedule(mgShellShuffle, 1500);
+}
+function mgShellShuffle(){
+  mg.phase = "shuffle";
+  mg.swapsLeft = 3 + Math.floor(Math.random()*2); // 3-4 swaps
+  mgShellSwap();
+}
+function mgShellSwap(){
+  if(!mg || mg.type!=="shell") return;
+  if(mg.swapsLeft<=0){ mg.phase="pick"; mg.anim=null; render(); return; }
+  var a = Math.floor(Math.random()*3);
+  var b = (a + 1 + Math.floor(Math.random()*2)) % 3;
+  mg.anim = {a:a, b:b, t:0, frames:8};
+  function step(){
+    if(!mg || mg.type!=="shell" || !mg.anim) return;
+    mg.anim.t++;
+    render();
+    if(mg.anim.t < mg.anim.frames){ mgSchedule(step, 60); }
+    else {
+      var tmp = mg.cups[a]; mg.cups[a] = mg.cups[b]; mg.cups[b] = tmp;
+      mg.anim = null; mg.swapsLeft--;
+      mgSchedule(mgShellSwap, 160);
+    }
+  }
+  mgSchedule(step, 60);
+}
+function mgShellPick(cupIdx){
+  if(mg.phase!=="pick") return;
+  var ok = (cupIdx===mg.ball);
+  if(ok) mg.score++;
+  mg.flash = {ok:ok, pick:cupIdx};
+  mg.phase = "reveal";
+  render();
+  mgSchedule(function(){
+    mg.round++;
+    if(mg.round>=3){ mg.done=true; render(); } else { mgShellStart(); }
+  }, 1900);
+}
+function mgDrawCup(x, y, w, h, lifted){
+  var yy = lifted ? y-180 : y;
+  ctx.fillStyle="#000";
+  ctx.beginPath();
+  ctx.moveTo(x-w*0.32, yy-h);
+  ctx.lineTo(x+w*0.32, yy-h);
+  ctx.lineTo(x+w*0.5, yy);
+  ctx.lineTo(x-w*0.5, yy);
+  ctx.closePath();
+  ctx.fill();
+}
+function mgDrawBall(x, y){
+  ctx.fillStyle="#000";
+  ctx.beginPath(); ctx.arc(x, y-45, 45, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle="#fff"; ctx.lineWidth=5;
+  ctx.beginPath(); ctx.arc(x, y-45, 28, -0.6, 0.6); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y-45, 28, Math.PI-0.6, Math.PI+0.6); ctx.stroke();
+}
+function mgRenderShell(){
+  var cy = 1050, cw = 340, ch = 300;
+  var msg = mg.phase==="show" ? "WATCH THE BALL..." :
+            mg.phase==="shuffle" ? "SHUFFLING..." :
+            mg.phase==="pick" ? "TAP THE CUP WITH THE BALL" :
+            (mg.flash && mg.flash.ok ? "CORRECT!" : "NOPE!");
+  var msgCol = mg.phase==="reveal" ? (mg.flash && mg.flash.ok ? "#0a0" : "#c00") : "#000";
+  text("ROUND "+(mg.round+1)+" OF 3", CENTER_X, 400, 44, true, "center");
+  text(msg, CENTER_X, 540, 64, true, "center", msgCol);
+  for(var i=0;i<3;i++){
+    var sx = mg.slots[mg.cups[i]];
+    var dy = 0;
+    if(mg.anim && (i===mg.anim.a || i===mg.anim.b)){
+      var other = (i===mg.anim.a) ? mg.anim.b : mg.anim.a;
+      var from = mg.slots[mg.cups[i]], to = mg.slots[mg.cups[other]];
+      var t = mg.anim.t / mg.anim.frames;
+      sx = from + (to-from)*t;
+      dy = (i===mg.anim.a ? -1 : 1) * Math.sin(t*Math.PI)*120;
+    }
+    var lifted = (mg.phase==="show" && i===mg.ball) ||
+                 (mg.phase==="reveal" && mg.flash && (i===mg.flash.pick || i===mg.ball));
+    if(lifted && i===mg.ball) mgDrawBall(sx, cy);
+    mgDrawCup(sx, cy+dy, cw, ch, lifted);
+    if(mg.phase==="pick"){
+      (function(idx, hx){ addHit(hx-cw/2-30, cy-ch-60, cw+60, ch+120, function(){ mgShellPick(idx); }); })(i, sx);
+    }
+  }
+}
+
+// ---- 3) BALL CAP FLIP (3 rounds) ----
+function mgCapStart(){
+  mg.phase = "bet"; mg.anim = null; mg.result = null; mg.flash = null;
+  render();
+}
+function mgCapBet(guess){
+  if(mg.phase!=="bet") return;
+  mg.guess = guess;
+  mg.result = Math.random() < 0.5 ? "up" : "down";
+  mg.phase = "flip";
+  mg.anim = {t:0, frames:14};
+  function step(){
+    if(!mg || mg.type!=="cap" || !mg.anim) return;
+    mg.anim.t++;
+    render();
+    if(mg.anim.t < mg.anim.frames){ mgSchedule(step, 70); }
+    else {
+      mg.anim = null;
+      var ok = (mg.guess===mg.result);
+      if(ok) mg.score++;
+      mg.flash = {ok:ok};
+      mg.phase = "reveal";
+      render();
+      mgSchedule(function(){
+        mg.round++;
+        if(mg.round>=3){ mg.done=true; render(); } else { mgCapStart(); }
+      }, 1700);
+    }
+  }
+  mgSchedule(step, 70);
+}
+function mgDrawCap(cx, cy, r, up, sy){
+  ctx.save();
+  ctx.translate(cx, cy);
+  var s = (sy==null ? 1 : sy) * (up ? 1 : -1);
+  if(Math.abs(s) < 0.06) s = s < 0 ? -0.06 : 0.06;
+  ctx.scale(1, s);
+  ctx.lineWidth = 10; ctx.strokeStyle = "#000";
+  ctx.beginPath(); ctx.arc(0, 0, r, Math.PI, 0); ctx.stroke();            // dome
+  ctx.beginPath(); ctx.moveTo(-r, 0); ctx.lineTo(r*1.9, 0); ctx.stroke(); // bill
+  ctx.beginPath(); ctx.arc(0, -r*0.55, r*0.16, 0, Math.PI*2); ctx.stroke(); // button
+  ctx.restore();
+}
+function mgRenderCap(){
+  text("ROUND "+(mg.round+1)+" OF 3", CENTER_X, 400, 44, true, "center");
+  var capY = 780, capR = 170;
+  if(mg.phase==="flip" && mg.anim){
+    var t = mg.anim.t / mg.anim.frames;
+    mgDrawCap(CENTER_X, capY, capR, true, Math.cos(t*Math.PI*5));
+    text("FLIPPING...", CENTER_X, capY+320, 56, true, "center");
+  } else if(mg.phase==="reveal"){
+    mgDrawCap(CENTER_X, capY, capR, mg.result==="up", 1);
+    var ok = mg.flash && mg.flash.ok;
+    text("BILL "+mg.result.toUpperCase()+"!", CENTER_X, capY+300, 56, true, "center");
+    text(ok?"YOU WIN!":"YOU LOSE!", CENTER_X, capY+400, 72, true, "center", ok?"#0a0":"#c00");
+  } else {
+    mgDrawCap(CENTER_X, capY, capR, true, 1);
+    text("CALL THE FLIP", CENTER_X, capY+320, 56, true, "center");
+    var bw=800, bh=300, byy=1300;
+    invBand(CENTER_X-bw-40, byy, bw, bh, "BILL UP", 64);
+    addHit(CENTER_X-bw-40, byy, bw, bh, function(){ mgCapBet("up"); });
+    invBand(CENTER_X+40, byy, bw, bh, "BILL DOWN", 64);
+    addHit(CENTER_X+40, byy, bw, bh, function(){ mgCapBet("down"); });
+  }
+}
+
+// ---- 4) GUESS THE STAT (3 questions; live feed or trivia fallback) ----
+var MG_TRIVIA = [
+  {q:"HOW MANY OUTS IN A FULL INNING?", a:"6", o:["3","4","9"]},
+  {q:"HOW MANY PLAYERS ON THE FIELD?", a:"9", o:["8","10","11"]},
+  {q:"HOW MANY BASES INCLUDING HOME?", a:"4", o:["3","5","6"]},
+  {q:"HOW MANY STRIKES IS A STRIKEOUT?", a:"3", o:["2","4","5"]},
+  {q:"HOW MANY INNINGS IN A REGULATION GAME?", a:"9", o:["7","8","10"]}
+];
+function mgNumOpts(ans){
+  var opts=[String(ans)], guard=0;
+  while(opts.length<4 && guard<300){
+    guard++;
+    var span = Math.max(3, Math.round(ans*0.4));
+    var w = ans + (Math.floor(Math.random()*(2*span+1)) - span);
+    if(w<0 || w===ans) continue;
+    if(opts.indexOf(String(w))<0) opts.push(String(w));
+  }
+  var fill=1;
+  while(opts.length<4){ if(opts.indexOf(String(ans+fill))<0) opts.push(String(ans+fill)); fill++; }
+  return mgShuffle(opts);
+}
+function mgAvgOpts(ansStr){
+  var base = parseFloat(ansStr) || 0.25;
+  var opts=[ansStr], guard=0;
+  while(opts.length<4 && guard<400){
+    guard++;
+    var v = base + (Math.random()*0.09 - 0.045);
+    if(v < 0.05) v = 0.05 + Math.random()*0.1;
+    var n = Math.round(v*1000);
+    var s = "." + (n<100?"0":"") + (n<10?"0":"") + n;
+    if(s!==ansStr && opts.indexOf(s)<0) opts.push(s);
+  }
+  var fn=101;
+  while(opts.length<4){ var fs2="."+fn; if(opts.indexOf(fs2)<0) opts.push(fs2); fn+=37; }
+  return mgShuffle(opts);
+}
+function mgBuildStatQ(){
+  try{
+    if(lastFeed){
+      var st = deriveState(lastFeed);
+      var pool = [];
+      if(st.pitcherId){
+        var pl = getPlayer(lastFeed, st.pitcherId);
+        var sp = pl && pl.seasonStats && pl.seasonStats.pitching;
+        if(sp && sp.strikeOuts!=null) pool.push({q:"SEASON STRIKEOUTS FOR "+lastName(st.pitcher)+"?", ans:String(sp.strikeOuts), num:sp.strikeOuts});
+        if(sp && sp.wins!=null) pool.push({q:"SEASON WINS FOR "+lastName(st.pitcher)+"?", ans:String(sp.wins), num:sp.wins});
+      }
+      if(st.batterId){
+        var bl = getPlayer(lastFeed, st.batterId);
+        var sb = bl && bl.seasonStats && bl.seasonStats.batting;
+        if(sb && sb.avg) pool.push({q:"BATTING AVG FOR "+lastName(st.batter)+"?", ans:sb.avg, avg:true});
+        if(sb && sb.homeRuns!=null) pool.push({q:"SEASON HOME RUNS FOR "+lastName(st.batter)+"?", ans:String(sb.homeRuns), num:sb.homeRuns});
+      }
+      pool.push({q:"HOW MANY RUNS DO THE "+st.away+" HAVE RIGHT NOW?", ans:String(st.awayScore), num:st.awayScore});
+      pool.push({q:"WHAT INNING IS IT?", ans:String(st.inning||1), num:st.inning||1});
+      if(pool.length){
+        var p = pool[Math.floor(Math.random()*pool.length)];
+        return { q:p.q, ans:p.ans, opts: p.avg ? mgAvgOpts(p.ans) : mgNumOpts(p.num) };
+      }
+    }
+  }catch(e){}
+  // graceful fallback: no live game -> baseball trivia
+  var t = MG_TRIVIA[Math.floor(Math.random()*MG_TRIVIA.length)];
+  return { q:t.q, ans:t.a, opts: mgShuffle([t.a].concat(t.o)) };
+}
+function mgStatStart(){
+  mg.round++;
+  if(mg.round > 3){ mg.done = true; render(); return; }
+  mg.q = mgBuildStatQ();
+  mg.phase = "play"; mg.flash = null;
+  render();
+}
+function mgStatPick(opt){
+  if(mg.phase!=="play") return;
+  var ok = (opt===mg.q.ans);
+  if(ok) mg.score++;
+  mg.flash = {ok:ok, v:opt};
+  mg.phase = "reveal";
+  render();
+  mgSchedule(function(){ mgStatStart(); }, 2100);
+}
+function mgRenderStat(){
+  text("QUESTION "+mg.round+" OF 3", CENTER_X, 380, 44, true, "center");
+  fitText(mg.q.q, CENTER_X, 560, 64, true, "center", "#000", CW-300, 34);
+  var bw=1200, bh=200, gap=50, y0=680;
+  for(var i=0;i<mg.q.opts.length;i++){
+    var byy = y0 + i*(bh+gap);
+    var opt = mg.q.opts[i];
+    if(mg.phase==="reveal"){
+      if(opt===mg.q.ans){ invBand(CENTER_X-bw/2, byy, bw, bh, opt, 72); }
+      else if(mg.flash && mg.flash.v===opt && !mg.flash.ok){
+        rect(CENTER_X-bw/2, byy, bw, bh, 5);
+        text(opt, CENTER_X, byy+bh/2+26, 72, true, "center", "#c00");
+      } else {
+        rect(CENTER_X-bw/2, byy, bw, bh, 3);
+        text(opt, CENTER_X, byy+bh/2+26, 72, true, "center");
+      }
+    } else {
+      rect(CENTER_X-bw/2, byy, bw, bh, 5);
+      text(opt, CENTER_X, byy+bh/2+26, 72, true, "center");
+      (function(o){ addHit(CENTER_X-bw/2, byy, bw, bh, function(){ mgStatPick(o); }); })(opt);
+    }
+  }
+  if(mg.phase==="reveal"){
+    var ok = mg.flash && mg.flash.ok;
+    text(ok?"CORRECT!":("THE ANSWER: "+mg.q.ans), CENTER_X, y0+4*(bh+gap)+70, 64, true, "center", ok?"#0a0":"#c00");
+  }
+}
+
+// ---- shared mini-game chrome ----
+function mgRenderDone(){
+  var total = mg.type==="math" ? 5 : 3;
+  text("GAME OVER", CENTER_X, 620, 110, true, "center");
+  text("SCORE: "+mg.score+" / "+total, CENTER_X, 800, 84, true, "center");
+  var bw=700, bh=200;
+  invBand(CENTER_X-bw-40, 1060, bw, bh, "NEXT GAME", 56);
+  addHit(CENTER_X-bw-40, 1060, bw, bh, function(){ startMiniGame(); });
+  invBand(CENTER_X+40, 1060, bw, bh, "BACK TO LIVE", 56);
+  addHit(CENTER_X+40, 1060, bw, bh, exitMiniGame);
+}
+function renderMiniGame(){
+  if(!mg){ mode="live"; render(); return; }
+  var titles = {math:"MATH FLASH", shell:"SHELL GAME", cap:"CAP FLIP", stat:"GUESS THE STAT"};
+  text(titles[mg.type]||"MINI-GAME", 60, 160, 72, true);
+  var scoreTxt = "SCORE "+mg.score+((mg.type==="math" && mg.streak>1) ? ("  STREAK "+mg.streak) : "");
+  text(scoreTxt, CW-400, 160, 44, true, "right");
+  invBand(CW-340, 60, 280, 160, "X EXIT", 44);
+  addHit(CW-340, 60, 280, 160, exitMiniGame);
+  if(mg.done){ mgRenderDone(); return; }
+  if(mg.type==="math") mgRenderMath();
+  else if(mg.type==="shell") mgRenderShell();
+  else if(mg.type==="cap") mgRenderCap();
+  else mgRenderStat();
+}
+
 // ================= POLLING =================
 // During a live game: poll the feed directly every 5s (no sched re-fetch overhead).
 // When idle (nothing changed 5 polls in a row) back off to 15s. Snap back to 5s on any change.
@@ -1880,10 +2276,25 @@ function schedulePoll(ms){
 }
 // Fast path: just re-fetch the live feed for the known gamePk — skip the schedule round-trip.
 function pollFeed(){
-  if(mode!=="live" || !gamePk){ poll(); return; }
+  if((mode!=="live" && mode!=="minigame") || !gamePk){ poll(); return; }
   fetch(feedUrl(gamePk)).then(function(r){ return r.json(); }).then(function(feed){
     lastFeed = feed;
     errNote = "";
+    // --- mini-game auto-trigger: fires when inningState flips to a break ---
+    // TEST HOOK: to fake a break transition without a live game, uncomment the
+    // next line once and reload — it simulates "Top" -> "Middle":
+    // prevInningState = "Top"; feed.liveData.linescore.inningState = "Middle";
+    try{
+      var inSt = (feed.liveData && feed.liveData.linescore && feed.liveData.linescore.inningState) || "";
+      if(mode==="live" && (inSt==="Middle"||inSt==="End") && prevInningState && prevInningState!==inSt && !mgAutoPending){
+        mgAutoPending = true;
+        setTimeout(function(){
+          mgAutoPending = false;
+          if(mode==="live") startMiniGame();
+        }, 3000);
+      }
+      prevInningState = inSt;
+    }catch(e){}
     var st = deriveState(feed);
     var gameState = (feed.gameData&&feed.gameData.status&&feed.gameData.status.abstractGameState)||"";
     var runnersOn = !!(st.bases[1]||st.bases[2]||st.bases[3]);
@@ -1892,7 +2303,7 @@ function pollFeed(){
     if(st.state==="Live" && changed){
       idlePolls = 0;
       resetPitchClock(runnersOn);
-      if(prevCount) animateBall();
+      if(prevCount && mode==="live") animateBall();
     } else if(st.state==="Live"){
       idlePolls++;
     }
@@ -1913,7 +2324,7 @@ function pollFeed(){
   });
 }
 function poll(){
-  if(mode!=="live"){ return; }
+  if(mode!=="live" && mode!=="minigame"){ return; }
   fetch(schedUrl()).then(function(r){ return r.json(); }).then(function(sched){
     var games = [];
     (sched.dates||[]).forEach(function(d){ games = games.concat(d.games||[]); });

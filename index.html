@@ -316,16 +316,31 @@ function pickGame(games){
   return games.length ? games[0] : null;
 }
 
+var SUFFIXES = ["JR.","JR","SR.","SR","II","III","IV","V"];
+function stripSuffix(parts){
+  // Return the real last name, skipping any trailing suffix tokens
+  var i = parts.length - 1;
+  while(i > 0 && SUFFIXES.indexOf(parts[i].toUpperCase().replace(/[.,]/g,"")) >= 0) i--;
+  return parts[i];
+}
 function lastName(full){
   if(!full) return "";
   var parts = full.trim().split(" ");
-  return parts[parts.length-1].toUpperCase();
+  if(parts.length === 1) return parts[0].toUpperCase();
+  var last = stripSuffix(parts);
+  var suffix = parts[parts.length-1];
+  var hasSuffix = SUFFIXES.indexOf(suffix.toUpperCase().replace(/[.,]/g,"")) >= 0;
+  return (hasSuffix ? last+" "+suffix : last).toUpperCase();
 }
 function shortName(full){
   if(!full) return "";
   var parts = full.trim().split(" ");
   if(parts.length===1) return parts[0].toUpperCase();
-  return (parts[0][0]+". "+parts[parts.length-1]).toUpperCase();
+  var last = stripSuffix(parts);
+  var suffix = parts[parts.length-1];
+  var hasSuffix = SUFFIXES.indexOf(suffix.toUpperCase().replace(/[.,]/g,"")) >= 0;
+  var display = hasSuffix ? last+" "+suffix : last;
+  return (parts[0][0]+". "+display).toUpperCase();
 }
 
 // ================= DERIVED STATE =================

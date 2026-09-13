@@ -1978,7 +1978,7 @@ function mgShellStart(){
 function mgShellShuffle(){
   mg.phase = "shuffle";
   // Hard: 10-14 swaps, speed increases as swaps progress
-  mg.swapsLeft = 10 + Math.floor(Math.random()*5);
+  mg.swapsLeft = 22 + Math.floor(Math.random()*8);
   mg.swapsTotal = mg.swapsLeft;
   mg.lastSwap = null; // track last pair to enable tricky repeats
   mgShellSwap();

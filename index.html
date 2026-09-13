@@ -1977,27 +1977,43 @@ function mgShellStart(){
 }
 function mgShellShuffle(){
   mg.phase = "shuffle";
-  mg.swapsLeft = 3 + Math.floor(Math.random()*2); // 3-4 swaps
+  // Hard: 10-14 swaps, speed increases as swaps progress
+  mg.swapsLeft = 10 + Math.floor(Math.random()*5);
+  mg.swapsTotal = mg.swapsLeft;
+  mg.lastSwap = null; // track last pair to enable tricky repeats
   mgShellSwap();
 }
 function mgShellSwap(){
   if(!mg || mg.type!=="shell") return;
   if(mg.swapsLeft<=0){ mg.phase="pick"; mg.anim=null; render(); return; }
-  var a = Math.floor(Math.random()*3);
-  var b = (a + 1 + Math.floor(Math.random()*2)) % 3;
-  mg.anim = {a:a, b:b, t:0, frames:8};
+  // Pick a pair — occasionally repeat the last swap to fake you out
+  var a, b;
+  var repeatChance = mg.swapsLeft < mg.swapsTotal * 0.5 ? 0.35 : 0.15;
+  if(mg.lastSwap && Math.random() < repeatChance){
+    a = mg.lastSwap.a; b = mg.lastSwap.b;
+  } else {
+    a = Math.floor(Math.random()*3);
+    b = (a + 1 + Math.floor(Math.random()*2)) % 3;
+  }
+  mg.lastSwap = {a:a, b:b};
+  // Speed ramps up: starts at 45ms/frame, bottoms at 22ms in final third
+  var progress = 1 - (mg.swapsLeft / mg.swapsTotal);
+  var frameMs = Math.round(45 - progress * 23);
+  var pauseMs = Math.round(90 - progress * 65); // pause between swaps: 90ms → 25ms
+  var frames = 6; // fewer frames = snappier arc
+  mg.anim = {a:a, b:b, t:0, frames:frames};
   function step(){
     if(!mg || mg.type!=="shell" || !mg.anim) return;
     mg.anim.t++;
     render();
-    if(mg.anim.t < mg.anim.frames){ mgSchedule(step, 60); }
+    if(mg.anim.t < mg.anim.frames){ mgSchedule(step, frameMs); }
     else {
       var tmp = mg.cups[a]; mg.cups[a] = mg.cups[b]; mg.cups[b] = tmp;
       mg.anim = null; mg.swapsLeft--;
-      mgSchedule(mgShellSwap, 160);
+      mgSchedule(mgShellSwap, pauseMs);
     }
   }
-  mgSchedule(step, 60);
+  mgSchedule(step, frameMs);
 }
 function mgShellPick(cupIdx){
   if(mg.phase!=="pick") return;

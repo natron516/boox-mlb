@@ -174,6 +174,9 @@ var searchMsg = "";
 var retroAvailable = {};   // all team codes with games this year
 var retroOpponents = {};   // retroOpponents[codeA] = {codeB: true, ...}
 var retroLoading = false;
+var modernOpponents = {};  // modernOpponents[teamId] = {opponentId: true, ...} — modern years (1974+)
+var modernLoading = false;
+var modernLoadedFor = null; // {teamId, year} — avoid re-fetching same pair
 function loadRetroIndex(year, cb){
   retroLoading = true;
   render();
@@ -223,8 +226,43 @@ function teamIsValidOpponent(teamId){
   return false;
 }
 function findRetroGameAndStart(){ findRetroGame(); }
+function loadModernOpponents(teamId, year, cb){
+  // Build opponent set from StatsAPI schedule for teamId in year.
+  if(modernLoadedFor && modernLoadedFor.teamId===teamId && modernLoadedFor.year===year){
+    if(cb) cb(); return;
+  }
+  modernLoading = true;
+  modernOpponents = {};
+  render();
+  var url = "https://statsapi.mlb.com/api/v1/schedule?sportId=1&teamId="+teamId+"&season="+year+"&gameType=R&fields=dates,games,teams,away,home,team,id,status,codedGameState";
+  fetch(url).then(function(r){ return r.json(); }).then(function(sched){
+    (sched.dates||[]).forEach(function(d){
+      (d.games||[]).forEach(function(g){
+        try{
+          var aId = g.teams.away.team.id, hId = g.teams.home.team.id;
+          if(g.status && g.status.codedGameState==="F"){
+            if(!modernOpponents[aId]) modernOpponents[aId] = {};
+            if(!modernOpponents[hId]) modernOpponents[hId] = {};
+            modernOpponents[aId][hId] = true;
+            modernOpponents[hId][aId] = true;
+          }
+        }catch(e){}
+      });
+    });
+    modernLoadedFor = {teamId:teamId, year:year};
+    modernLoading = false;
+    if(cb) cb();
+  }).catch(function(){ modernLoading = false; if(cb) cb(); });
+}
+function modernTeamIsValidOpponent(teamId){
+  if(!pickA) return true;
+  if(!modernLoadedFor) return true; // not loaded yet — show all
+  var opps = modernOpponents[pickA] || {};
+  return !!opps[teamId];
+}
 function onPickYearChanged(){
   searchMsg = "";
+  modernOpponents = {}; modernLoadedFor = null;
   if(pickYear < 1974){
     pickB = null;
     loadRetroIndex(pickYear, autoSelectPair);
@@ -755,7 +793,14 @@ function renderPicker(){
   // Left grid (Team A): always all teams for the year
   grid(xA, pickA, function(id){
     pickA = id;
-    if(pickYear < 1974) pickB = null; // opponents change
+    pickB = null; // reset B whenever A changes
+    if(pickYear < 1974){
+      // retrosheet: clear and reload opponents
+    } else {
+      // modern: load opponents from StatsAPI
+      loadModernOpponents(id, pickYear, function(){ render(); });
+    }
+    render();
   });
 
   // Right grid (Team B): retro years grey out invalid opponents, auto-start on tap
@@ -783,7 +828,32 @@ function renderPicker(){
       }
     }
   } else {
-    grid(xB, pickB, function(id){ pickB=id; });
+    // Modern years: gray out teams with no games vs Team A
+    if(modernLoading && pickA){
+      text("LOADING...", xB+colW/2, topY+100, 40, true, "center");
+    }
+    for(var mi=0;mi<TEAMS_Y.length;mi++){
+      var mcol = mi%3, mrow = Math.floor(mi/3);
+      var mbx = xB + mcol*(btnW+gap);
+      var mby = topY + mrow*(btnH+gap);
+      var mt = TEAMS_Y[mi];
+      var mSel = (pickB===mt.id);
+      var mValid = (!pickA || modernTeamIsValidOpponent(mt.id)) && mt.id!==pickA;
+      if(mSel){
+        fillRect(mbx,mby,btnW,btnH);
+        drawTeamName(teamNameForYear(mt,pickYear), mbx+btnW/2, mby+btnH/2, btnW-16, "#fff");
+        (function(id){ addHit(mbx,mby,btnW,btnH,function(){ pickB=id; render(); }); })(mt.id);
+      } else if(mValid){
+        rect(mbx,mby,btnW,btnH,3);
+        drawTeamName(teamNameForYear(mt,pickYear), mbx+btnW/2, mby+btnH/2, btnW-16, "#000");
+        (function(id){ addHit(mbx,mby,btnW,btnH,function(){ pickB=id; render(); }); })(mt.id);
+      } else {
+        ctx.globalAlpha = 0.3;
+        rect(mbx,mby,btnW,btnH,2);
+        drawTeamName(teamNameForYear(mt,pickYear), mbx+btnW/2, mby+btnH/2, btnW-16, "#000");
+        ctx.globalAlpha = 1.0;
+      }
+    }
   }
 
   // season selector: DECADE stacked above YEAR, both centered

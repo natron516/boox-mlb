@@ -1668,7 +1668,7 @@ function drawLineupPanel(x, y, abbr, lineup, activeBatterId){
       text(String(i+1), COL_NUM, top+44, 42, true, "left", col);
       // Name: clip to keep clear of AVG column
       var nameMaxW = COL_AVG - 50 - COL_NAME;
-      fitText(lastName(b.name), COL_NAME, top+44, 42, true, "left", col, nameMaxW, 28);
+      fitText(b.name, COL_NAME, top+44, 42, true, "left", col, nameMaxW, 28);
       text(b.avg,  COL_AVG, top+44, 32, false, "right", col);
       text(b.pos,  COL_POS, top+44, 32, false, "right", col);
       text(b.h+"/"+b.ab+"  "+b.rbi+" RBI  "+b.hr+" HR", COL_NAME, top+82, 30, false, "left", col);

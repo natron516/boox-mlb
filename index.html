@@ -627,6 +627,7 @@ var OF_POS = null;
 
 // ================= RENDER =================
 function render(){
+  if(mgAnimating) return; // animation loop owns the canvas right now
   hitRegions = [];
   ctx.fillStyle = "#fff";
   ctx.fillRect(0,0,CW,CH);
@@ -1878,6 +1879,7 @@ function resetPitchClock(runnersOn){
 var MG_TYPES = ["math","shell","cap","stat"];
 var mg = null;           // active mini-game state
 var mgTimer = null;      // single pending timeout for the active game
+var mgAnimating = false; // true while shell/cap animation is stepping — blocks poll renders
 var prevInningState = null;
 var mgAutoPending = false;
 
@@ -1998,18 +2000,24 @@ function mgShellSwap(){
   mg.lastSwap = {a:a, b:b};
   // Speed ramps up: starts at 45ms/frame, bottoms at 22ms in final third
   var progress = 1 - (mg.swapsLeft / mg.swapsTotal);
-  var frameMs = Math.round(45 - progress * 23);
+  var frameMs = Math.round(55 - progress * 20); // 55ms→35ms: fast but not e-ink-killing
   var pauseMs = Math.round(90 - progress * 65); // pause between swaps: 90ms → 25ms
   var frames = 6; // fewer frames = snappier arc
   mg.anim = {a:a, b:b, t:0, frames:frames};
   function step(){
-    if(!mg || mg.type!=="shell" || !mg.anim) return;
+    if(!mg || mg.type!=="shell" || !mg.anim) { mgAnimating = false; return; }
+    mgAnimating = true;
     mg.anim.t++;
-    render();
+    // Direct draw — bypass render() guard so animation owns the canvas
+    hitRegions = [];
+    ctx.fillStyle = "#fff"; ctx.fillRect(0,0,CW,CH);
+    var m2 = document.getElementById("cv"); // just need ctx, already have it
+    renderMiniGame();
     if(mg.anim.t < mg.anim.frames){ mgSchedule(step, frameMs); }
     else {
       var tmp = mg.cups[a]; mg.cups[a] = mg.cups[b]; mg.cups[b] = tmp;
       mg.anim = null; mg.swapsLeft--;
+      mgAnimating = false;
       mgSchedule(mgShellSwap, pauseMs);
     }
   }
@@ -2319,13 +2327,13 @@ function pollFeed(){
     if(st.state==="Live" && changed){
       idlePolls = 0;
       resetPitchClock(runnersOn);
-      if(prevCount && mode==="live") animateBall();
+      if(prevCount && mode==="live" && !ballAnimating) animateBall();
     } else if(st.state==="Live"){
       idlePolls++;
     }
     if(st.state!=="Live") clockRunning = false;
     prevCount = c;
-    if(mode==="live") render();
+    if(mode==="live" && !ballAnimating) render();
     if(gameState==="Final"){
       // Game ended — switch to slow sched poll
       poll();
